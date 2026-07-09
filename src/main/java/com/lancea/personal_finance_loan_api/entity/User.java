@@ -49,6 +49,7 @@ public class User {
     @Column(nullable = false)
     private Boolean isDeleted = false;
 
+    @Column
     private Instant deletedAt;
 
     @CreatedDate
@@ -70,7 +71,6 @@ public class User {
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RefreshToken> refreshTokens = new ArrayList<>();
-
 
 
 }
