@@ -8,11 +8,20 @@ import jakarta.validation.ConstraintValidatorContext;
 public class PasswordMatchesValidator implements ConstraintValidator<PasswordMatches, RegisterRequest> {
 
     @Override
-    public boolean isValid(RegisterRequest registerRequest, ConstraintValidatorContext ctx){
+    public boolean isValid(RegisterRequest registerRequest, ConstraintValidatorContext context){
 
         if(registerRequest.password() == null || registerRequest.confirmPassword() == null) return false;
 
-        return registerRequest.password().equals(registerRequest.confirmPassword());
+        boolean matches =  registerRequest.password().equals(registerRequest.confirmPassword());
+
+        if(!matches){
+            context.disableDefaultConstraintViolation();
+            context.buildConstraintViolationWithTemplate("Passwords do not match")
+                    .addPropertyNode("confirmPassword")
+                    .addConstraintViolation();
+        }
+
+        return matches;
 
     }
 }
