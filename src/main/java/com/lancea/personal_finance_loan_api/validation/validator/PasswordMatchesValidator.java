@@ -1,7 +1,6 @@
 package com.lancea.personal_finance_loan_api.validation.validator;
 
 import com.lancea.personal_finance_loan_api.dto.request.AuthenticationRequest;
-import com.lancea.personal_finance_loan_api.dto.request.RegisterRequest;
 import com.lancea.personal_finance_loan_api.validation.annotation.PasswordMatches;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;

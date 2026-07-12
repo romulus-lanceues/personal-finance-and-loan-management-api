@@ -1,9 +1,7 @@
 package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.dto.request.AuthenticationRequest;
-import com.lancea.personal_finance_loan_api.dto.request.RegisterRequest;
 import com.lancea.personal_finance_loan_api.dto.response.AuthenticationResponse;
-import com.lancea.personal_finance_loan_api.dto.response.RegisterResponse;
 import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.enums.AuthProvider;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
@@ -20,7 +18,7 @@ public class AuthService {
         this.userRepository = userRepository;
     }
 
-    public RegisterResponse registerUser(AuthenticationRequest authenticationRequest){
+    public AuthenticationResponse registerUser(AuthenticationRequest authenticationRequest){
 
         User newUser = User.builder()
                 .fullName(authenticationRequest.fullName())
@@ -31,7 +29,7 @@ public class AuthService {
 
         userRepository.save(newUser);
 
-        return new RegisterResponse(newUser.getId(), "Success");
+        return new AuthenticationResponse(newUser.getId(), "Success");
     }
 
     public void loginUser(AuthenticationRequest authenticationRequest){
