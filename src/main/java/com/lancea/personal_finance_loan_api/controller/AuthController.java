@@ -1,11 +1,14 @@
 package com.lancea.personal_finance_loan_api.controller;
 
+import com.lancea.personal_finance_loan_api.dto.request.AuthenticationRequest;
 import com.lancea.personal_finance_loan_api.dto.request.RegisterRequest;
+import com.lancea.personal_finance_loan_api.dto.request.ValidationGroups;
+import com.lancea.personal_finance_loan_api.dto.response.AuthenticationResponse;
 import com.lancea.personal_finance_loan_api.dto.response.RegisterResponse;
 import com.lancea.personal_finance_loan_api.service.AuthService;
-import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 
@@ -25,9 +28,19 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<RegisterResponse> registerUser(@Valid @RequestBody RegisterRequest registerRequest){
+    public ResponseEntity<RegisterResponse> registerUser(@Validated(ValidationGroups.Register.class)
+                                                             @RequestBody AuthenticationRequest authenticationRequest){
 
-        return ResponseEntity.ok(authService.registerUser(registerRequest));
+        return ResponseEntity.ok(authService.registerUser(authenticationRequest));
     }
 
+    @PostMapping("/login")
+    public ResponseEntity<?> loginUser(@Validated(ValidationGroups.Login.class)
+                                                                @RequestBody AuthenticationRequest authenticationRequest){
+
+        authService.loginUser(authenticationRequest);
+
+        return ResponseEntity.ok("Success");
+
+    }
 }

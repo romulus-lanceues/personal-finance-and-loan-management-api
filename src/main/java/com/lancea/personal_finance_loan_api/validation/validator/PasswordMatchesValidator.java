@@ -1,18 +1,19 @@
 package com.lancea.personal_finance_loan_api.validation.validator;
 
+import com.lancea.personal_finance_loan_api.dto.request.AuthenticationRequest;
 import com.lancea.personal_finance_loan_api.dto.request.RegisterRequest;
 import com.lancea.personal_finance_loan_api.validation.annotation.PasswordMatches;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 
-public class PasswordMatchesValidator implements ConstraintValidator<PasswordMatches, RegisterRequest> {
+public class PasswordMatchesValidator implements ConstraintValidator<PasswordMatches, AuthenticationRequest> {
 
     @Override
-    public boolean isValid(RegisterRequest registerRequest, ConstraintValidatorContext context){
+    public boolean isValid(AuthenticationRequest authenticationRequest, ConstraintValidatorContext context){
 
-        if(registerRequest.password() == null || registerRequest.confirmPassword() == null) return false;
+        if(authenticationRequest.password() == null || authenticationRequest.confirmPassword() == null) return false;
 
-        boolean matches =  registerRequest.password().equals(registerRequest.confirmPassword());
+        boolean matches =  authenticationRequest.password().equals(authenticationRequest.confirmPassword());
 
         if(!matches){
             context.disableDefaultConstraintViolation();
