@@ -44,12 +44,10 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> loginUser(@Validated(ValidationGroups.Login.class)
+    public ResponseEntity<AuthenticationResponse> loginUser(@Validated(ValidationGroups.Login.class)
                                                                 @RequestBody AuthenticationRequest authenticationRequest){
 
-        authService.loginUser(authenticationRequest);
-
-        return ResponseEntity.ok("Success");
+        return ResponseEntity.ok(authService.loginUser(authenticationRequest));
 
     }
 }

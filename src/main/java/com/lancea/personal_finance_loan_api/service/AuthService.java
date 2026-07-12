@@ -32,9 +32,13 @@ public class AuthService {
         return new AuthenticationResponse(newUser.getId(), "Success");
     }
 
-    public void loginUser(AuthenticationRequest authenticationRequest){
+    public AuthenticationResponse loginUser(AuthenticationRequest authenticationRequest){
 
-        log.info("Authentication name: {}, Email: {}, Password: {}, Confirm Password: {}", authenticationRequest.fullName(),
-                authenticationRequest.email(), authenticationRequest.password(), authenticationRequest.confirmPassword());
+        User user = userRepository.findUserByEmail(authenticationRequest.email()).orElseThrow( () -> new RuntimeException("Email doesn't exist"));
+
+        if(!authenticationRequest.password().equals(user.getPassword())) throw new RuntimeException("Incorrect password");
+
+        return new AuthenticationResponse(user.getId(),"Success");
+
     }
 }
