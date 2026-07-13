@@ -42,7 +42,7 @@ public class User {
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
-    private AuthProvider provide;
+    private AuthProvider provider;
 
 
     @Builder.Default

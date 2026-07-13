@@ -24,7 +24,7 @@ public class AuthService {
                 .fullName(authenticationRequest.fullName())
                 .email(authenticationRequest.email())
                 .password(authenticationRequest.password())
-                .provide(AuthProvider.LOCAL)
+                .provider(AuthProvider.LOCAL)
                 .build();
 
         userRepository.save(newUser);
