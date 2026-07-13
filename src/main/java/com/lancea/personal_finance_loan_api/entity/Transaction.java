@@ -30,7 +30,9 @@ public class Transaction {
     @JoinColumn(name = "account_id", nullable = false)
     private Account account;
 
-    //Insert Loan Entity After Creation
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "loan_id")
+    private Loan loan;
 
     @Column(nullable = false, unique = true)
     private String referenceNumber;

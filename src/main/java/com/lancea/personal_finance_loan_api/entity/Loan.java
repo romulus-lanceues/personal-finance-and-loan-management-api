@@ -81,4 +81,8 @@ public class Loan {
     @OneToMany(mappedBy = "loan", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("paymentNumber ASC")
     private List<LoanSchedule> schedule = new ArrayList<>();
+
+    @Builder.Default
+    @OneToMany(mappedBy = "loan", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Transaction> transactions = new ArrayList<>();
 }
