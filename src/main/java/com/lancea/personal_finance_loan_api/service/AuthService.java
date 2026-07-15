@@ -6,6 +6,7 @@ import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.enums.AuthProvider;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -13,9 +14,11 @@ import org.springframework.stereotype.Service;
 public class AuthService {
 
     private UserRepository userRepository;
+    private PasswordEncoder passwordEncoder;
 
-    public AuthService(UserRepository userRepository){
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder){
         this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public AuthenticationResponse registerUser(AuthenticationRequest authenticationRequest){
@@ -23,7 +26,7 @@ public class AuthService {
         User newUser = User.builder()
                 .fullName(authenticationRequest.fullName())
                 .email(authenticationRequest.email())
-                .password(authenticationRequest.password())
+                .password(passwordEncoder.encode(authenticationRequest.password()))
                 .provider(AuthProvider.LOCAL)
                 .build();
 
@@ -33,7 +36,6 @@ public class AuthService {
     }
 
     public AuthenticationResponse loginUser(AuthenticationRequest authenticationRequest){
-
         User user = userRepository.findUserByEmail(authenticationRequest.email()).orElseThrow( () -> new RuntimeException("Email doesn't exist"));
 
         if(!authenticationRequest.password().equals(user.getPassword())) throw new RuntimeException("Incorrect password");
