@@ -104,6 +104,12 @@
 			<version>1.84</version>
 		</dependency>
 
+		<!--OAuth2 resource dependency for JWT implementation-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+		</dependency>
+
 	</dependencies>
 
 	<build>
