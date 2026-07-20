@@ -5,9 +5,15 @@ import com.lancea.personal_finance_loan_api.dto.response.AuthenticationResponse;
 import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.enums.AuthProvider;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
+import com.lancea.personal_finance_loan_api.security.CustomUserDetails;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.UUID;
 
 @Service
 @Slf4j
@@ -15,10 +21,15 @@ public class AuthService {
 
     private UserRepository userRepository;
     private PasswordEncoder passwordEncoder;
+    private AuthenticationManager authenticationManager;
+    private JwtTokenService jwtTokenService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder){
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                       AuthenticationManager authenticationManager, JwtTokenService jwtTokenService){
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.authenticationManager = authenticationManager;
+        this.jwtTokenService = jwtTokenService;
     }
 
     public AuthenticationResponse registerUser(AuthenticationRequest authenticationRequest){
@@ -32,15 +43,28 @@ public class AuthService {
 
         userRepository.save(newUser);
 
-        return new AuthenticationResponse(newUser.getId(), "Success");
+        Authentication authRequest = UsernamePasswordAuthenticationToken
+                .unauthenticated(authenticationRequest.email(), authenticationRequest.password());
+
+        Authentication authenticatedRequest = authenticationManager.authenticate(authRequest);
+
+        String jwtToken = jwtTokenService.generateJwtToken(authenticatedRequest);
+
+        return new AuthenticationResponse(newUser.getId(), "Success", jwtToken);
     }
 
     public AuthenticationResponse loginUser(AuthenticationRequest authenticationRequest){
-        User user = userRepository.findUserByEmail(authenticationRequest.email()).orElseThrow( () -> new RuntimeException("Email doesn't exist"));
 
-        if(!authenticationRequest.password().equals(user.getPassword())) throw new RuntimeException("Incorrect password");
+        Authentication authRequest = UsernamePasswordAuthenticationToken
+                .unauthenticated(authenticationRequest.email(), authenticationRequest.password());
 
-        return new AuthenticationResponse(user.getId(),"Success");
+        Authentication authenticatedRequest = authenticationManager.authenticate(authRequest);
+
+        UUID userId = ((CustomUserDetails) authenticatedRequest.getPrincipal()).getUserId();
+
+        String jwtToken = jwtTokenService.generateJwtToken(authenticatedRequest);
+
+        return new AuthenticationResponse(userId,"Success", jwtToken);
 
     }
 }

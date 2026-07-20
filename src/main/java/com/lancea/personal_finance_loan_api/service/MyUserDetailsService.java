@@ -2,6 +2,7 @@ package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
+import com.lancea.personal_finance_loan_api.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -19,12 +20,7 @@ public class MyUserDetailsService implements UserDetailsService {
 
         User user = userRepository.findUserByEmail(email).orElseThrow( () -> new UsernameNotFoundException("User not found"));
 
-        return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getEmail())
-                .password(user.getPassword())
-                .authorities("USER")
-                .build();
-
+        return new CustomUserDetails(user);
     }
 
 }
