@@ -24,19 +24,14 @@ public class UserService {
 
     public PersonalInfo getPersonalInfo(Jwt jwt){
 
-
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
-
-        User user = userRepository.findById(userId).orElseThrow( () -> new UserNotFoundException(userId));
-
+        User user = getUserOrThrow(jwt);
         return new PersonalInfo(user.getFullName(), user.getEmail(), user.getId());
 
     }
 
     public void updatePersonalInfo(UpdateInfoRequest updateInfoRequest, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
 
-        User user = userRepository.findById(userId).orElseThrow( () -> new UserNotFoundException(userId));
+        User user = getUserOrThrow(jwt);
 
         if(updateInfoRequest.fullName() == null){
             user.setEmail(updateInfoRequest.email());
@@ -58,14 +53,19 @@ public class UserService {
     }
 
     public void deleteUser (Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
 
-        User user = userRepository.findById(userId).orElseThrow( () -> new UserNotFoundException(userId));
+        User user =getUserOrThrow(jwt);
 
         user.setIsDeleted(true);
         user.setDeletedAt(Instant.now());
 
         userRepository.save(user);
+    }
+
+    private User getUserOrThrow(Jwt jwt) {
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
     }
 
 }
