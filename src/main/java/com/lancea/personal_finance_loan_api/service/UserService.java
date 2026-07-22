@@ -4,6 +4,7 @@ package com.lancea.personal_finance_loan_api.service;
 import com.lancea.personal_finance_loan_api.dto.request.UpdateInfoRequest;
 import com.lancea.personal_finance_loan_api.dto.response.PersonalInfo;
 import com.lancea.personal_finance_loan_api.entity.User;
+import com.lancea.personal_finance_loan_api.exception.UserNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -26,7 +27,7 @@ public class UserService {
 
         UUID userId = UUID.fromString(jwt.getClaim("userId"));
 
-        User user = userRepository.findById(userId).orElseThrow( () -> new RuntimeException("User not found"));
+        User user = userRepository.findById(userId).orElseThrow( () -> new UserNotFoundException(userId));
 
         return new PersonalInfo(user.getFullName(), user.getEmail(), user.getId());
 
@@ -35,7 +36,7 @@ public class UserService {
     public void updatePersonalInfo(UpdateInfoRequest updateInfoRequest, Jwt jwt){
         UUID userId = UUID.fromString(jwt.getClaim("userId"));
 
-        User user = userRepository.findById(userId).orElseThrow( () -> new RuntimeException("User not found"));
+        User user = userRepository.findById(userId).orElseThrow( () -> new UserNotFoundException(userId));
 
         if(updateInfoRequest.fullName() == null){
             user.setEmail(updateInfoRequest.email());
@@ -59,13 +60,12 @@ public class UserService {
     public void deleteUser (Jwt jwt){
         UUID userId = UUID.fromString(jwt.getClaim("userId"));
 
-        User user = userRepository.findById(userId).orElseThrow( () -> new RuntimeException("User not found"));
+        User user = userRepository.findById(userId).orElseThrow( () -> new UserNotFoundException(userId));
 
         user.setIsDeleted(true);
         user.setDeletedAt(Instant.now());
 
         userRepository.save(user);
     }
-
 
 }

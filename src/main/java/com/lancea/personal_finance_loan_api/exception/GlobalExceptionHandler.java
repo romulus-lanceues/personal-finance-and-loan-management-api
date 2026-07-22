@@ -46,6 +46,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Email already exist");
     }
 
+    @ExceptionHandler(UserNotFoundException.class)
+    public ProblemDetail handleUserNotFound(Exception ex){
+        log.error("User not found:", ex);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "User not found.");
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGenericExceptions(Exception ex){
         log.error("Unhandled exception:" , ex);
