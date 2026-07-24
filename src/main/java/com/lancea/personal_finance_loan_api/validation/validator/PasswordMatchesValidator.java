@@ -9,7 +9,6 @@ public class PasswordMatchesValidator implements ConstraintValidator<PasswordMat
 
     @Override
     public boolean isValid(AuthenticationRequest authenticationRequest, ConstraintValidatorContext context){
-
         if(authenticationRequest.password() == null || authenticationRequest.confirmPassword() == null) return false;
 
         boolean matches =  authenticationRequest.password().equals(authenticationRequest.confirmPassword());
