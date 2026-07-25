@@ -6,6 +6,7 @@ import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.enums.AuthProvider;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
 import com.lancea.personal_finance_loan_api.security.CustomUserDetails;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -17,20 +18,13 @@ import java.util.UUID;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class AuthService {
 
-    private UserRepository userRepository;
-    private PasswordEncoder passwordEncoder;
-    private AuthenticationManager authenticationManager;
-    private JwtTokenService jwtTokenService;
-
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       AuthenticationManager authenticationManager, JwtTokenService jwtTokenService){
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.authenticationManager = authenticationManager;
-        this.jwtTokenService = jwtTokenService;
-    }
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtTokenService jwtTokenService;
 
     public AuthenticationResponse registerUser(AuthenticationRequest authenticationRequest){
 
