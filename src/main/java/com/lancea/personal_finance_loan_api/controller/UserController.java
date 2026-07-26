@@ -5,6 +5,7 @@ import com.lancea.personal_finance_loan_api.dto.request.UpdateInfoRequest;
 import com.lancea.personal_finance_loan_api.dto.response.PersonalInfo;
 import com.lancea.personal_finance_loan_api.service.UserService;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping(value = "api/v1/users")
+@RequiredArgsConstructor
 public class UserController {
 
     private UserService userService;
