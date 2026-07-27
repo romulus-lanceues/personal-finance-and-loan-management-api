@@ -43,13 +43,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail handleDuplicateEmail(Exception ex){
         log.error("Data integrity violation:", ex);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Email already exist");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(UserNotFoundException.class)
     public ProblemDetail handleUserNotFound(Exception ex){
         log.error("User not found:", ex);
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "User not found.");
+    }
+
+    @ExceptionHandler(AccountNotFoundException.class)
+    public ProblemDetail handleAccountNotFound(Exception ex){
+        log.error("Account not found:", ex);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ProblemDetail handleBadRequest(Exception ex){
+        log.error("Bad request:", ex);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
