@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.dto.response;
 
+import com.lancea.personal_finance_loan_api.entity.Transaction;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
 
 import java.math.BigDecimal;
@@ -18,4 +19,17 @@ public record TransactionResponse(
         Instant transactedAt,
         Instant createdAt
 ) {
+
+    public static TransactionResponse of(Transaction transaction){
+        return new TransactionResponse(transaction.getId(),
+                transaction.getAccount().getId(),
+                (transaction.getLoan() == null) ? null : transaction.getLoan().getId(),
+                transaction.getReferenceNumber(),
+                transaction.getType(),
+                transaction.getAmount(),
+                transaction.getCategory(),
+                transaction.getDescription(),
+                transaction.getTransactedAt(),
+                transaction.getCreatedAt());
+    }
 }
