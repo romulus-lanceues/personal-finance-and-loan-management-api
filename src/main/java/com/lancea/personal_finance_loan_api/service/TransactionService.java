@@ -1,6 +1,8 @@
 package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
+import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
+import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
@@ -16,6 +18,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -56,5 +59,104 @@ public class TransactionService {
 
         return TransactionResponse.of(transactionRepository.save(transaction));
 
+    }
+
+    @Transactional
+    public TransactionResponse withdraw(WithdrawRequest withdrawRequest, Jwt jwt){
+
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        transactionRepository.findByIdempotencyKey(withdrawRequest.idempotencyKey())
+                .ifPresent( transaction -> {
+            throw new DuplicateTransactionException("Duplicated transaction detected", TransactionResponse.of(transaction));
+        } );
+
+        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(withdrawRequest.accountId(), userId)
+                .orElseThrow( ( () -> new AccountNotFoundException("Account doesn't exist or deleted")));
+
+        if(!account.getIsActive()) throw new BadRequestException("Cannot withdraw to a closed account");
+
+        if(account.getBalance().compareTo(withdrawRequest.amount()) < 0){
+            throw new BadRequestException("Insufficient balance");
+        }
+
+        account.setBalance(account.getBalance().subtract(withdrawRequest.amount()));
+        accountRepository.save(account);
+
+
+        Transaction transaction = Transaction.builder()
+                .account(account)
+                .referenceNumber(referenceNumberGenerator.generate())
+                .type(TransactionType.WITHDRAWAL)
+                .amount(withdrawRequest.amount())
+                .category(withdrawRequest.category())
+                .idempotencyKey(withdrawRequest.idempotencyKey())
+                .description(withdrawRequest.idempotencyKey())
+                .transactedAt(Instant.now())
+                .build();
+
+        return TransactionResponse.of(transactionRepository.save(transaction));
+
+    }
+
+    @Transactional
+    public List<TransactionResponse> transfer(TransferRequest transferRequest, Jwt jwt){
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        transactionRepository.findByIdempotencyKey(transferRequest.idempotencyKey())
+                .ifPresent( transaction -> {
+                    throw new DuplicateTransactionException("Duplicated transaction detected", TransactionResponse.of(transaction));
+                } );
+
+        if(transferRequest.fromAccountId().equals(transferRequest.toAccountId())) throw  new BadRequestException("Cannot transfer to the same account");
+
+        Account fromAccount = accountRepository.findByIdAndUserIdAndIsDeletedFalse(transferRequest.fromAccountId(), userId)
+                .orElseThrow( ( () -> new AccountNotFoundException("Account doesn't exist or deleted")));
+
+        Account toAccount = accountRepository.findByIdAndUserIdAndIsDeletedFalse(transferRequest.toAccountId(), userId)
+                .orElseThrow( ( () -> new AccountNotFoundException("Account doesn't exist or deleted")));
+
+
+        if(!fromAccount.getIsActive()) throw new BadRequestException("Source account is closed");
+        if(!toAccount.getIsActive()) throw new BadRequestException("Destination account is closed");
+
+        if(fromAccount.getBalance().compareTo(transferRequest.amount()) < 0)  throw new BadRequestException("Insufficient balance");
+
+        fromAccount.setBalance(fromAccount.getBalance().subtract(transferRequest.amount()));
+        toAccount.setBalance(toAccount.getBalance().add(transferRequest.amount()));
+
+        accountRepository.save(fromAccount);
+        accountRepository.save(toAccount);
+
+        String transferReference = UUID.randomUUID().toString();
+
+        Transaction debit = Transaction.builder()
+                .account(fromAccount)
+                .referenceNumber(referenceNumberGenerator.generate())
+                .type(TransactionType.TRANSFER)
+                .amount(transferRequest.amount())
+                .category("Transfer Out")
+                .idempotencyKey(transferRequest.idempotencyKey())
+                .description(transferRequest.description())
+                .transactedAt(Instant.now())
+                .transferReference(transferReference)
+                .build();
+
+        Transaction credit = Transaction.builder()
+                .account(toAccount)
+                .referenceNumber(referenceNumberGenerator.generate())
+                .type(TransactionType.TRANSFER)
+                .amount(transferRequest.amount())
+                .category("Transfer In")
+                .idempotencyKey(null)
+                .description(transferRequest.description())
+                .transactedAt(Instant.now())
+                .transferReference(transferReference)
+                .build();
+
+        transactionRepository.save(debit);
+        transactionRepository.save(credit);
+
+        return List.of(TransactionResponse.of(debit), TransactionResponse.of(credit));
     }
 }

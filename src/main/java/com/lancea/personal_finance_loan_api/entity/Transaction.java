@@ -49,7 +49,7 @@ public class Transaction {
     @Column
     private String category;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String idempotencyKey;
 
     @Column
@@ -64,6 +64,8 @@ public class Transaction {
 
     @Column(nullable = false)
     private Instant transactedAt;
+
+    private String transferReference;
 
     @CreatedDate
     @Column(updatable = false, nullable = false)
