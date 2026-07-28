@@ -26,4 +26,5 @@ public class TransactionController {
 
         return ResponseEntity.ok(transactionService.deposit(depositRequest, jwt));
     }
+
 }
