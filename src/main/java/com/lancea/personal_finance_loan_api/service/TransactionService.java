@@ -3,9 +3,11 @@ package com.lancea.personal_finance_loan_api.service;
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
 import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
+import com.lancea.personal_finance_loan_api.dto.response.PagedTransactionResponse;
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
+import com.lancea.personal_finance_loan_api.enums.FilterSearch;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.exception.AccountNotFoundException;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
@@ -14,6 +16,9 @@ import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
@@ -158,5 +163,38 @@ public class TransactionService {
         transactionRepository.save(credit);
 
         return List.of(TransactionResponse.of(debit), TransactionResponse.of(credit));
+    }
+
+    public PagedTransactionResponse getTransactions(Pageable pageable, FilterSearch transactionType,
+                                                     Jwt jwt){
+
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        switch(transactionType) {
+
+            case ALL -> {
+                Page<Transaction> allTransactions = transactionRepository.findByAccountUserId(userId, pageable);
+                return PagedTransactionResponse.of(allTransactions);
+            }
+
+            case DEPOSIT -> {
+                Page<Transaction> depositTransactions =  transactionRepository.findByAccountUserIdAndType(userId, TransactionType.DEPOSIT, pageable);
+                return PagedTransactionResponse.of(depositTransactions);
+            }
+
+            case WITHDRAWAL -> {
+                Page<Transaction> withdrawalTransactions =  transactionRepository.findByAccountUserIdAndType(userId, TransactionType.WITHDRAWAL, pageable);
+                return PagedTransactionResponse.of(withdrawalTransactions);
+            }
+
+            case TRANSFER -> {
+                Page<Transaction> transferTransactions =  transactionRepository.findByAccountUserIdAndType(userId, TransactionType.TRANSFER, pageable);
+                return PagedTransactionResponse.of(transferTransactions);
+            }
+
+            default -> throw new BadRequestException("A proper search filter is required");
+
+        }
+
     }
 }

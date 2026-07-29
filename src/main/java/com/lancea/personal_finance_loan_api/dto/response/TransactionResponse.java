@@ -2,6 +2,7 @@ package com.lancea.personal_finance_loan_api.dto.response;
 
 import com.lancea.personal_finance_loan_api.entity.Transaction;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
+import org.springframework.data.domain.Page;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,4 +33,5 @@ public record TransactionResponse(
                 transaction.getTransactedAt(),
                 transaction.getCreatedAt());
     }
+
 }
