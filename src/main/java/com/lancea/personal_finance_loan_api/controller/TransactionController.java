@@ -61,5 +61,22 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getTransactions(pageable, transactionType, jwt));
     }
 
+    @GetMapping("/{transactionId}")
+    public ResponseEntity<TransactionResponse> getTransactionById(@PathVariable UUID transactionId, @AuthenticationPrincipal Jwt jwt){
+        return ResponseEntity.ok(transactionService.getTransactionById(transactionId, jwt));
+    }
+
+    @GetMapping("/account/{accountId}")
+    public ResponseEntity<List<TransactionResponse>> getTransactionByAccount(@PathVariable UUID accountId,
+                                                                       @AuthenticationPrincipal Jwt jwt){
+        return ResponseEntity.ok(transactionService.getTransactionByAccount(accountId, jwt));
+    }
+
+    @GetMapping("/ref/{referenceNumber}")
+    public ResponseEntity<TransactionResponse> getTransactionByReferenceNumber(@PathVariable String referenceNumber,
+                                                                    @AuthenticationPrincipal Jwt jwt){
+        return ResponseEntity.ok(transactionService.getTransactionByReferenceNumber(referenceNumber, jwt));
+    }
+
 
 }

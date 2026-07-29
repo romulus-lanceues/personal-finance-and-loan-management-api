@@ -12,6 +12,7 @@ import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.exception.AccountNotFoundException;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionException;
+import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import jakarta.transaction.Transactional;
@@ -196,5 +197,32 @@ public class TransactionService {
 
         }
 
+    }
+
+    public TransactionResponse getTransactionById(UUID transactionId, Jwt jwt){
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        Transaction transaction = transactionRepository.findByIdAndAccountUserId(transactionId, userId)
+                .orElseThrow( () -> new ResourceNotFoundException("Transaction not found"));
+
+        return TransactionResponse.of(transaction);
+    }
+
+    public List<TransactionResponse> getTransactionByAccount(UUID accountId, Jwt jwt){
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        List<Transaction> transaction = transactionRepository.findByAccountIdAndAccountUserIdAndIsDeletedFalse(accountId, userId);
+
+        return transaction.stream().map(TransactionResponse::of).toList();
+
+    }
+
+    public TransactionResponse getTransactionByReferenceNumber(String referenceNumber, Jwt jwt){
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        Transaction transaction = transactionRepository.findByAccountUserIdAndReferenceNumber(userId, referenceNumber)
+                .orElseThrow( () -> new ResourceNotFoundException("Transaction not found"));
+
+        return TransactionResponse.of(transaction);
     }
 }
