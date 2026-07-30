@@ -3,6 +3,7 @@ package com.lancea.personal_finance_loan_api.controller;
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
 import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
+import com.lancea.personal_finance_loan_api.dto.response.MonthlySummaryResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedTransactionResponse;
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.enums.FilterSearch;
@@ -10,7 +11,6 @@ import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.service.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -78,5 +78,11 @@ public class TransactionController {
         return ResponseEntity.ok(transactionService.getTransactionByReferenceNumber(referenceNumber, jwt));
     }
 
+    @GetMapping("/monthly/summary")
+    public ResponseEntity<List<MonthlySummaryResponse>> getMonthlySummary(@RequestParam int year,
+                                                                           @RequestParam int month,
+                                                                          @AuthenticationPrincipal Jwt jwt){
+        return ResponseEntity.ok(transactionService.getMonthlySummary(year, month, jwt));
+    }
 
 }

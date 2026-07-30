@@ -3,6 +3,7 @@ package com.lancea.personal_finance_loan_api.service;
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
 import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
+import com.lancea.personal_finance_loan_api.dto.response.MonthlySummaryResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedTransactionResponse;
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
@@ -224,5 +225,12 @@ public class TransactionService {
                 .orElseThrow( () -> new ResourceNotFoundException("Transaction not found"));
 
         return TransactionResponse.of(transaction);
+    }
+
+    public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt){
+        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        return  transactionRepository.monthlySummary(userId, year, month).stream()
+                .map(MonthlySummaryResponse::of).toList();
     }
 }

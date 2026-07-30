@@ -4,7 +4,6 @@ import com.lancea.personal_finance_loan_api.entity.Transaction;
 import org.springframework.data.domain.Page;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 public record PagedTransactionResponse(
         List<TransactionResponse> content,
