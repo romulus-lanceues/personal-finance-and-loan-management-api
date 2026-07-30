@@ -18,7 +18,6 @@ import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -42,10 +41,12 @@ public class TransactionService {
         UUID userId = UUID.fromString(jwt.getClaim("userId"));
 
         transactionRepository.findByIdempotencyKey(depositRequest.idempotencyKey())
-                .ifPresent( existing -> { throw new DuplicateTransactionException("Duplicate transaction detected", TransactionResponse.of(existing));
+                .ifPresent( existing -> {
+                    throw new DuplicateTransactionException("Duplicate transaction detected", TransactionResponse.of(existing));
                 });
 
-        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(depositRequest.accountId(), userId).orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or deleted"));
+        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(depositRequest.accountId(), userId)
+                .orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or deleted"));
 
         if(!account.getIsActive()) throw new BadRequestException("Cannot deposit to a closed account");
 
@@ -214,7 +215,7 @@ public class TransactionService {
 
         List<Transaction> transaction = transactionRepository.findByAccountIdAndAccountUserIdAndIsDeletedFalse(accountId, userId);
 
-        return transaction.stream().map(TransactionResponse::of).toList();
+        return transaction.stream().map(TransactionResponse::of).toList( );
 
     }
 

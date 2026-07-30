@@ -7,7 +7,6 @@ import com.lancea.personal_finance_loan_api.dto.response.MonthlySummaryResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedTransactionResponse;
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.enums.FilterSearch;
-import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.service.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +30,7 @@ public class TransactionController {
 
     @PostMapping("/deposit")
     public ResponseEntity<TransactionResponse> deposit(@Valid @RequestBody DepositRequest depositRequest,
-                                                                @AuthenticationPrincipal Jwt jwt){
+                                                       @AuthenticationPrincipal Jwt jwt){
 
         return ResponseEntity.ok(transactionService.deposit(depositRequest, jwt));
     }
@@ -45,7 +44,7 @@ public class TransactionController {
 
     @PostMapping("/transfer")
     public ResponseEntity<List<TransactionResponse>> transfer(@Valid @RequestBody TransferRequest transferRequest,
-                                                             @AuthenticationPrincipal Jwt jwt){
+                                                              @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(transactionService.transfer(transferRequest, jwt));
 
     }
@@ -62,25 +61,26 @@ public class TransactionController {
     }
 
     @GetMapping("/{transactionId}")
-    public ResponseEntity<TransactionResponse> getTransactionById(@PathVariable UUID transactionId, @AuthenticationPrincipal Jwt jwt){
+    public ResponseEntity<TransactionResponse> getTransactionById(@PathVariable UUID transactionId,
+                                                                  @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(transactionService.getTransactionById(transactionId, jwt));
     }
 
     @GetMapping("/account/{accountId}")
     public ResponseEntity<List<TransactionResponse>> getTransactionByAccount(@PathVariable UUID accountId,
-                                                                       @AuthenticationPrincipal Jwt jwt){
+                                                                             @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(transactionService.getTransactionByAccount(accountId, jwt));
     }
 
     @GetMapping("/ref/{referenceNumber}")
     public ResponseEntity<TransactionResponse> getTransactionByReferenceNumber(@PathVariable String referenceNumber,
-                                                                    @AuthenticationPrincipal Jwt jwt){
+                                                                               @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(transactionService.getTransactionByReferenceNumber(referenceNumber, jwt));
     }
 
     @GetMapping("/monthly/summary")
     public ResponseEntity<List<MonthlySummaryResponse>> getMonthlySummary(@RequestParam int year,
-                                                                           @RequestParam int month,
+                                                                          @RequestParam int month,
                                                                           @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(transactionService.getMonthlySummary(year, month, jwt));
     }
