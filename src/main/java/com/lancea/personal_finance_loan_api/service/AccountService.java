@@ -10,6 +10,7 @@ import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.UserNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
+import com.lancea.personal_finance_loan_api.utility.UserUtility;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -29,7 +30,7 @@ public class AccountService {
     private final UserRepository userRepository;
 
     public AccountResponse createAccount(Jwt jwt, AccountRequest accountRequest){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
@@ -51,7 +52,7 @@ public class AccountService {
 
     public List<AccountResponse> getAllAccounts(Jwt jwt){
 
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         return accountRepository.findByUserIdAndIsDeletedFalse(userId).stream().map( account -> AccountResponse.of(account))
                 .collect(Collectors.toList());
@@ -59,7 +60,7 @@ public class AccountService {
 
 
     public AccountResponse getAccountById(UUID accountId, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
                 .orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or has been closed"));
@@ -71,7 +72,7 @@ public class AccountService {
     public AccountResponse updateAccount(UUID accountId, AccountUpdateRequest updateRequest,
                                          Jwt jwt){
 
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId,userId)
                 .orElseThrow( ()-> new AccountNotFoundException("Account doesn't exist or has been deleted"));
@@ -87,7 +88,7 @@ public class AccountService {
 
     public AccountResponse closeAccount(UUID accountId, Jwt jwt)  {
 
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
                 .orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or has been deleted"));
@@ -104,7 +105,7 @@ public class AccountService {
     }
 @Transactional
     public void deleteAccount(UUID accountId, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
                 .orElseThrow(() -> new AccountNotFoundException("Account doesn't exist or has been deleted"));

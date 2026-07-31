@@ -16,6 +16,7 @@ import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionExcept
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
+import com.lancea.personal_finance_loan_api.utility.UserUtility;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -38,7 +39,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponse deposit(DepositRequest depositRequest, Jwt jwt){
 
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         transactionRepository.findByIdempotencyKey(depositRequest.idempotencyKey())
                 .ifPresent( existing -> {
@@ -72,7 +73,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponse withdraw(WithdrawRequest withdrawRequest, Jwt jwt){
 
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         transactionRepository.findByIdempotencyKey(withdrawRequest.idempotencyKey())
                 .ifPresent( transaction -> {
@@ -109,7 +110,8 @@ public class TransactionService {
 
     @Transactional
     public List<TransactionResponse> transfer(TransferRequest transferRequest, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+
+        UUID userId = UserUtility.getUserId(jwt);
 
         transactionRepository.findByIdempotencyKey(transferRequest.idempotencyKey())
                 .ifPresent( transaction -> {
@@ -171,7 +173,7 @@ public class TransactionService {
     public PagedTransactionResponse getTransactions(Pageable pageable, FilterSearch transactionType,
                                                      Jwt jwt){
 
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         switch(transactionType) {
 
@@ -202,7 +204,7 @@ public class TransactionService {
     }
 
     public TransactionResponse getTransactionById(UUID transactionId, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         Transaction transaction = transactionRepository.findByIdAndAccountUserId(transactionId, userId)
                 .orElseThrow( () -> new ResourceNotFoundException("Transaction not found"));
@@ -211,7 +213,7 @@ public class TransactionService {
     }
 
     public List<TransactionResponse> getTransactionByAccount(UUID accountId, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         List<Transaction> transaction = transactionRepository.findByAccountIdAndAccountUserIdAndIsDeletedFalse(accountId, userId);
 
@@ -220,7 +222,7 @@ public class TransactionService {
     }
 
     public TransactionResponse getTransactionByReferenceNumber(String referenceNumber, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         Transaction transaction = transactionRepository.findByAccountUserIdAndReferenceNumber(userId, referenceNumber)
                 .orElseThrow( () -> new ResourceNotFoundException("Transaction not found"));
@@ -229,7 +231,7 @@ public class TransactionService {
     }
 
     public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt){
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
 
         return  transactionRepository.monthlySummary(userId, year, month).stream()
                 .map(MonthlySummaryResponse::of).toList();
