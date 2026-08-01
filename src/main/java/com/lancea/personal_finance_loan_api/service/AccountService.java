@@ -5,9 +5,8 @@ import com.lancea.personal_finance_loan_api.dto.request.AccountUpdateRequest;
 import com.lancea.personal_finance_loan_api.dto.response.AccountResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.User;
-import com.lancea.personal_finance_loan_api.exception.AccountNotFoundException;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
-import com.lancea.personal_finance_loan_api.exception.UserNotFoundException;
+import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
@@ -33,7 +32,7 @@ public class AccountService {
         UUID userId = UserUtility.getUserId(jwt);
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found" + userId));
 
 
         Account newAccount = Account.builder()
@@ -63,7 +62,7 @@ public class AccountService {
         UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
-                .orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or has been closed"));
+                .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         return AccountResponse.of(account);
     }
@@ -75,7 +74,7 @@ public class AccountService {
         UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId,userId)
-                .orElseThrow( ()-> new AccountNotFoundException("Account doesn't exist or has been deleted"));
+                .orElseThrow( ()-> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         account.setAccountName(updateRequest.accountName());
         account.setAccountType(updateRequest.accountType());
@@ -91,7 +90,7 @@ public class AccountService {
         UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
-                .orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or has been deleted"));
+                .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         if(account.getBalance().compareTo(BigDecimal.ZERO) > 0) throw new BadRequestException
                 ("Cannot close an account with remaining balance of" + account.getBalance());
@@ -108,7 +107,7 @@ public class AccountService {
         UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
-                .orElseThrow(() -> new AccountNotFoundException("Account doesn't exist or has been deleted"));
+                .orElseThrow(() -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         account.setIsDeleted(true);
         account.setDeletedAt(Instant.now());

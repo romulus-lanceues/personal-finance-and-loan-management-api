@@ -10,7 +10,6 @@ import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
 import com.lancea.personal_finance_loan_api.enums.FilterSearch;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
-import com.lancea.personal_finance_loan_api.exception.AccountNotFoundException;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
@@ -47,7 +46,7 @@ public class TransactionService {
                 });
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(depositRequest.accountId(), userId)
-                .orElseThrow( () -> new AccountNotFoundException("Account doesn't exist or deleted"));
+                .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         if(!account.getIsActive()) throw new BadRequestException("Cannot deposit to a closed account");
 
@@ -81,7 +80,7 @@ public class TransactionService {
         } );
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(withdrawRequest.accountId(), userId)
-                .orElseThrow( ( () -> new AccountNotFoundException("Account doesn't exist or deleted")));
+                .orElseThrow( ( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted")));
 
         if(!account.getIsActive()) throw new BadRequestException("Cannot withdraw to a closed account");
 
@@ -121,10 +120,10 @@ public class TransactionService {
         if(transferRequest.fromAccountId().equals(transferRequest.toAccountId())) throw  new BadRequestException("Cannot transfer to the same account");
 
         Account fromAccount = accountRepository.findByIdAndUserIdAndIsDeletedFalse(transferRequest.fromAccountId(), userId)
-                .orElseThrow( ( () -> new AccountNotFoundException("Account doesn't exist or deleted")));
+                .orElseThrow( ( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted")));
 
         Account toAccount = accountRepository.findByIdAndUserIdAndIsDeletedFalse(transferRequest.toAccountId(), userId)
-                .orElseThrow( ( () -> new AccountNotFoundException("Account doesn't exist or deleted")));
+                .orElseThrow( ( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted")));
 
 
         if(!fromAccount.getIsActive()) throw new BadRequestException("Source account is closed");
