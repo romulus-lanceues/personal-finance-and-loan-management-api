@@ -41,9 +41,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ProblemDetail handleDuplicateEmail(Exception ex){
+    public ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex){
         log.error("Data integrity violation:", ex);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "The request could not be completed due to a conflict with existing data.");
     }
 
     @ExceptionHandler(BadRequestException.class)
