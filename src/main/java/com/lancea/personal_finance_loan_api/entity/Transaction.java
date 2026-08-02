@@ -6,6 +6,7 @@ import lombok.*;
 import org.hibernate.annotations.SQLRestriction;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -14,6 +15,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "transactions")
 @SQLRestriction("is_deleted = false")
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -47,7 +49,7 @@ public class Transaction {
     @Column
     private String category;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String idempotencyKey;
 
     @Column
@@ -62,6 +64,8 @@ public class Transaction {
 
     @Column(nullable = false)
     private Instant transactedAt;
+
+    private String transferReference;
 
     @CreatedDate
     @Column(updatable = false, nullable = false)

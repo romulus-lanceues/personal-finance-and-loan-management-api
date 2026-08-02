@@ -41,15 +41,33 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
-    public ProblemDetail handleDuplicateEmail(Exception ex){
+    public ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex){
         log.error("Data integrity violation:", ex);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Email already exist");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "The request could not be completed due to a conflict with existing data.");
     }
 
-    @ExceptionHandler(UserNotFoundException.class)
-    public ProblemDetail handleUserNotFound(Exception ex){
-        log.error("User not found:", ex);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "User not found.");
+    @ExceptionHandler(BadRequestException.class)
+    public ProblemDetail handleBadRequest(Exception ex){
+        log.error("Bad request:", ex);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler(DuplicateTransactionException.class)
+    public ProblemDetail handleDuplicateTransactions(DuplicateTransactionException ex){
+        log.error("Duplicate transaction found", ex);
+
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.OK, ex.getMessage());
+        problemDetail.setProperty("existingTransaction", ex.getExistingTransaction());
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ProblemDetail handleNotFoundResources(Exception ex){
+        log.error("Resource not found", ex);
+
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

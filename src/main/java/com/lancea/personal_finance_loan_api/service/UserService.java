@@ -4,8 +4,10 @@ package com.lancea.personal_finance_loan_api.service;
 import com.lancea.personal_finance_loan_api.dto.request.UpdateInfoRequest;
 import com.lancea.personal_finance_loan_api.dto.response.PersonalInfo;
 import com.lancea.personal_finance_loan_api.entity.User;
-import com.lancea.personal_finance_loan_api.exception.UserNotFoundException;
+import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
+import com.lancea.personal_finance_loan_api.utility.UserUtility;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
@@ -14,13 +16,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
-
-    public  UserService (UserRepository userRepository){
-        this.userRepository = userRepository;
-    }
 
     public PersonalInfo getPersonalInfo(Jwt jwt){
 
@@ -63,9 +62,9 @@ public class UserService {
     }
 
     private User getUserOrThrow(Jwt jwt) {
-        UUID userId = UUID.fromString(jwt.getClaim("userId"));
+        UUID userId = UserUtility.getUserId(jwt);
         return userRepository.findById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found" + userId));
     }
 
 }
