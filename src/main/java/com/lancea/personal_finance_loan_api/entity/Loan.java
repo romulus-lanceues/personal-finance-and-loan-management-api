@@ -53,6 +53,7 @@ public class Loan {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal monthlyPayment;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private LoanStatus status = LoanStatus.ACTIVE;
@@ -63,6 +64,7 @@ public class Loan {
     @Column(nullable = false)
     private Instant maturityDate;
 
+    @Builder.Default
     @Column(nullable = false)
     private boolean isDeleted = false;
 
