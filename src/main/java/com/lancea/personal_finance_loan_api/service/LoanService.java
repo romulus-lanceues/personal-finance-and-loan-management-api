@@ -2,6 +2,7 @@ package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
+import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
@@ -14,6 +15,8 @@ import com.lancea.personal_finance_loan_api.repository.UserRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
@@ -159,6 +162,25 @@ public class LoanService {
         }
 
         return monthlySchedule;
+    }
+
+    public PagedLoanResponse getUserLoans(Pageable pageable, Jwt jwt){
+
+        UUID userId = UserUtility.getUserId(jwt);
+
+        Page<Loan> loans = loanRepository.findByUserIdAndIsDeletedIsFalse(userId,pageable);
+
+        return PagedLoanResponse.of(loans);
+    }
+
+    public LoanResponse getLoanById(UUID loanId, Jwt jwt){
+
+        UUID userId = UserUtility.getUserId(jwt);
+
+        Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId)
+                .orElseThrow( () -> new ResourceNotFoundException("Loan does not exist"));
+
+        return LoanResponse.of(loan);
     }
 
 }
