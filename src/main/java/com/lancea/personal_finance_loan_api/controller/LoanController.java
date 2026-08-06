@@ -12,7 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.UUID;
 
 @RestController
@@ -26,7 +28,15 @@ public class LoanController {
     public ResponseEntity<LoanResponse> createLoan(@RequestBody LoanRequest loanRequest,
                                                    @AuthenticationPrincipal Jwt jwt){
 
-        return ResponseEntity.ok(loanService.createLoan(loanRequest, jwt));
+        LoanResponse response = loanService.createLoan(loanRequest, jwt);
+
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(response.loanId())
+                .toUri();
+
+        return ResponseEntity.created(location).body(response);
     }
 
     @GetMapping
