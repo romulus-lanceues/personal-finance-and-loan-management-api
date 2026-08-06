@@ -1,6 +1,7 @@
 package com.lancea.personal_finance_loan_api.controller;
 
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
+import com.lancea.personal_finance_loan_api.dto.response.LoanComparisonResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.service.LoanService;
@@ -38,6 +39,14 @@ public class LoanController {
     ResponseEntity<LoanResponse> getLoanById(@PathVariable UUID loanId,
                                              @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(loanService.getLoanById(loanId, jwt));
+    }
+
+    @GetMapping("/compare")
+    ResponseEntity<LoanComparisonResponse> compareLoans(@RequestParam UUID loanAId,
+                                                        @RequestParam UUID loanBId,
+                                                        @AuthenticationPrincipal Jwt jwt){
+
+        return ResponseEntity.ok(loanService.compareLoan(loanAId, loanBId, jwt));
     }
 
 

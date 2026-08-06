@@ -1,6 +1,8 @@
 package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
+import com.lancea.personal_finance_loan_api.dto.response.LoanComparisonResponse;
+import com.lancea.personal_finance_loan_api.dto.response.LoanDetails;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
@@ -15,6 +17,7 @@ import com.lancea.personal_finance_loan_api.repository.UserRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -26,12 +29,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LoanService {
 
     private static final int SCALE = 10;
@@ -181,6 +183,65 @@ public class LoanService {
                 .orElseThrow( () -> new ResourceNotFoundException("Loan does not exist"));
 
         return LoanResponse.of(loan);
+    }
+
+    public LoanComparisonResponse compareLoan(UUID loanAId, UUID loanBId, Jwt jwt){
+        UUID userId = UserUtility.getUserId(jwt);
+
+        Loan loanA = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanAId, userId)
+                .orElseThrow( () -> new ResourceNotFoundException("Loan with an ID of: " + loanAId + "not found"));
+
+        Loan loanB = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanBId, userId)
+                .orElseThrow( () -> new ResourceNotFoundException("Loan with an ID of: " + loanAId + "not found"));
+
+
+       LoanDetails loanADetails = calculateLoanDetails(loanA);
+       LoanDetails loanBDetails = calculateLoanDetails(loanB);
+
+
+        BigDecimal interestDifference = loanADetails.totalInterest()
+                .subtract( loanBDetails.totalInterest())
+                .setScale(2, ROUNDING_MODE)
+                .abs();
+
+        BigDecimal monthlyDifference = loanA.getMonthlyPayment()
+                .subtract(loanB.getMonthlyPayment())
+                .setScale(2, ROUNDING_MODE)
+                .abs();
+
+
+        String loanWithLowerCost =
+
+                //Compares loanA amount to loanB, converts the value to its integer representation
+                //then identify which value cost less base on it
+
+                switch (Integer.signum(loanADetails.amountPayable().compareTo(loanBDetails.amountPayable()))) {
+                    case  1 -> loanB.getLoanName();
+                    case -1 -> loanA.getLoanName();
+                    default -> "Both loans cost the same";
+                };
+
+
+        return new LoanComparisonResponse (loanADetails, loanBDetails, interestDifference, monthlyDifference, loanWithLowerCost);
+
+    }
+
+    private LoanDetails calculateLoanDetails(Loan loan) {
+
+        BigDecimal totalAmountPayable = loan.getMonthlyPayment()
+                .multiply(BigDecimal.valueOf(loan.getTermMonths()))
+                .setScale(2, ROUNDING_MODE);
+        BigDecimal totalInterestPaid = totalAmountPayable
+                .subtract(loan.getPrincipal())
+                .setScale(2, ROUNDING_MODE);
+
+        return new LoanDetails(loan.getLoanName(),
+                loan.getId(),
+                loan.getAnnualRate(),
+                totalAmountPayable,
+                totalInterestPaid);
+
+
     }
 
 }
