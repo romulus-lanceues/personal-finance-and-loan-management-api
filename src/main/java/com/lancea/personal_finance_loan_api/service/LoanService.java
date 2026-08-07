@@ -1,14 +1,14 @@
 package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
-import com.lancea.personal_finance_loan_api.dto.response.LoanComparisonResponse;
-import com.lancea.personal_finance_loan_api.dto.response.LoanDetails;
-import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
-import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
+import com.lancea.personal_finance_loan_api.dto.response.*;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
 import com.lancea.personal_finance_loan_api.entity.User;
+import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
+import com.lancea.personal_finance_loan_api.enums.LoanStatus;
+import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.LoanRepository;
@@ -64,7 +64,8 @@ public class LoanService {
             monthlyPayment = request.principal().divide(BigDecimal.valueOf(request.termMonths()), SCALE, ROUNDING_MODE);
         }
         else {
-            List<BigDecimal> monthlyRateAndPayment = calculateMonthlyRateAndPayment(request);
+            List<BigDecimal> monthlyRateAndPayment =
+                    calculateMonthlyRateAndPayment(request.principal(), request.annualRate(), request.termMonths());
             monthlyRate = monthlyRateAndPayment.getFirst();
             monthlyPayment = monthlyRateAndPayment.getLast();
         }
@@ -92,15 +93,16 @@ public class LoanService {
     }
 
 
-    private List<BigDecimal> calculateMonthlyRateAndPayment(LoanRequest request){
+    private List<BigDecimal> calculateMonthlyRateAndPayment(BigDecimal principal, BigDecimal annualRate,
+                                                            int termMonths){
 
-        BigDecimal monthlyRate = request.annualRate()
+        BigDecimal monthlyRate = annualRate
                 .divide(BigDecimal.valueOf(100), SCALE, ROUNDING_MODE)
                 .divide(BigDecimal.valueOf(12), SCALE, ROUNDING_MODE);
 
         BigDecimal monthlyRatePlusOneToThePowOfTerm = BigDecimal.ONE
                 .add(monthlyRate)
-                .pow(request.termMonths());
+                .pow(termMonths);
 
         BigDecimal numerator = monthlyRate.multiply(monthlyRatePlusOneToThePowOfTerm);
 
@@ -108,7 +110,7 @@ public class LoanService {
 
         BigDecimal factor = numerator.divide(denominator, SCALE, ROUNDING_MODE);
 
-        BigDecimal monthlyPayment = request.principal().multiply(factor).setScale(4, ROUNDING_MODE);
+        BigDecimal monthlyPayment = principal.multiply(factor).setScale(4, ROUNDING_MODE);
 
         return List.of(monthlyRate, monthlyPayment);
 
@@ -242,6 +244,149 @@ public class LoanService {
                 totalInterestPaid);
 
 
+    }
+
+    public LoanSimulationResponse simulatePayment (UUID loanId, int paymentNumber,
+                             BigDecimal extraAmount, Jwt jwt){
+
+        UUID userId = UserUtility.getUserId(jwt);
+
+        Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId)
+                .orElseThrow( () -> new RuntimeException("Loan not found"));
+
+        if (extraAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Extra amount must be greater than zero");
+        }
+
+        LoanSchedule targetRow = loanScheduleRepository
+                .findByLoanIdAndPaymentNumber(loanId, paymentNumber)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Payment number not found in schedule"));
+
+        if (targetRow.getStatus() != LoanScheduleStatus.PENDING) {
+            throw new BadRequestException(
+                    "Cannot simulate against an installment that is already paid");
+        }
+
+
+        BigDecimal monthlyRate = computeMonthlyRate(loan.getAnnualRate());
+        BigDecimal monthlyPayment = loan.getMonthlyPayment();
+
+        BigDecimal remainingBalance = targetRow.getRemainingBalance().subtract(extraAmount);
+
+
+        if(remainingBalance.compareTo(BigDecimal.ZERO) <= 0){
+            return buildFullPayoffResponse(loan, paymentNumber);
+        }
+
+        List<LoanSchedule> simulatedSchedule = new ArrayList<>();
+        LocalDate disbursedDate = loan.getDisbursedAt().atZone(ZoneOffset.UTC).toLocalDate();
+
+        int simulatedPaymentNumber = paymentNumber + 1;
+        int maxIterations = loan.getTermMonths() - paymentNumber;
+        int iterations = 0;
+
+        while(remainingBalance.compareTo(BigDecimal.ZERO) > 0 &&
+                 iterations < maxIterations){
+
+            iterations++;
+
+            BigDecimal interestPortion = remainingBalance
+                    .multiply(monthlyRate)
+                    .setScale(4, ROUNDING_MODE);
+
+            BigDecimal principalPortion = monthlyPayment
+                    .subtract(interestPortion)
+                    .setScale(4, ROUNDING_MODE);
+
+            BigDecimal actualPayment = monthlyPayment;
+
+            if(principalPortion.compareTo(remainingBalance) >= 0){
+                principalPortion = remainingBalance;
+                actualPayment = principalPortion.add(interestPortion).setScale(4, ROUNDING_MODE);
+                remainingBalance = BigDecimal.ZERO;
+            }
+            else {
+                remainingBalance = remainingBalance.subtract(principalPortion).setScale(4, ROUNDING_MODE);
+            }
+
+            LocalDate dueDate = disbursedDate.plusMonths(simulatedPaymentNumber);
+
+            simulatedSchedule.add(LoanSchedule.builder()
+                            .loan(loan)
+                            .paymentNumber(simulatedPaymentNumber)
+                            .paymentAmount(actualPayment)
+                            .principalPortion(principalPortion)
+                            .interestPortion(interestPortion)
+                            .remainingBalance(remainingBalance)
+                            . dueDate(dueDate)
+                            .status(LoanScheduleStatus.PENDING)
+                            .build());
+
+            simulatedPaymentNumber++;
+
+        }
+
+
+        return buildSimulationResponse(loan, paymentNumber, extraAmount, simulatedSchedule);
+
+}
+
+    private BigDecimal computeMonthlyRate(BigDecimal annualRate){
+        if(annualRate.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+
+        return annualRate
+                .divide(BigDecimal.valueOf(12), SCALE, ROUNDING_MODE)
+                .divide(BigDecimal.valueOf(100), SCALE, ROUNDING_MODE);
+    }
+
+    private LoanSimulationResponse buildFullPayoffResponse(Loan loan, int startPaymentNumber){
+
+        List<LoanSchedule> remainingActualLoanSchedule = loanScheduleRepository.findByLoanId(loan.getId())
+                .stream()
+                .filter(loanSchedule -> loanSchedule.getPaymentNumber() > startPaymentNumber)
+                .toList();
+
+        BigDecimal savedInterest = remainingActualLoanSchedule
+                .stream()
+                .map(LoanSchedule::getInterestPortion)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        int monthsSaved = remainingActualLoanSchedule.size();
+
+        return new LoanSimulationResponse(new ArrayList<>(), savedInterest, monthsSaved);
+
+
+    }
+
+    private LoanSimulationResponse buildSimulationResponse(Loan loan, int startPaymentNumber,
+                                                           BigDecimal extraAmount, List<LoanSchedule>simulatedSchedule){
+
+        List<LoanSchedule> remainingActualLoanSchedule = loanScheduleRepository.findByLoanId(loan.getId())
+                .stream()
+                .filter( loanSchedule -> loanSchedule.getPaymentNumber() > startPaymentNumber)
+                .toList();
+
+        BigDecimal originalRemainingInterest = remainingActualLoanSchedule
+                .stream()
+                .map(LoanSchedule::getInterestPortion)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal simulatedInterest = simulatedSchedule
+                .stream()
+                .map(LoanSchedule::getInterestPortion)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal interestSaved = originalRemainingInterest.subtract(simulatedInterest);
+
+        int monthsSaved = remainingActualLoanSchedule.size() - simulatedSchedule.size();
+
+        List<LoanScheduleResponse> loanScheduleResponses = simulatedSchedule
+                .stream()
+                .map(LoanScheduleResponse::of)
+                .toList();
+
+        return new LoanSimulationResponse(loanScheduleResponses, interestSaved, monthsSaved);
     }
 
 }

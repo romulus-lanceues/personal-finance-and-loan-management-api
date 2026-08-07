@@ -3,6 +3,7 @@ package com.lancea.personal_finance_loan_api.controller;
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanComparisonResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
+import com.lancea.personal_finance_loan_api.dto.response.LoanSimulationResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.service.LoanService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.util.UUID;
 
@@ -59,6 +61,13 @@ public class LoanController {
         return ResponseEntity.ok(loanService.compareLoan(loanAId, loanBId, jwt));
     }
 
+    @PostMapping("/{loanId}/simulate")
+    ResponseEntity<LoanSimulationResponse> simulatePayment(@PathVariable UUID loanId,
+                                                           @RequestParam int paymentNumber,
+                                                           @RequestParam BigDecimal extraAmount,
+                                                           @AuthenticationPrincipal Jwt jwt) {
 
 
+        return ResponseEntity.ok(loanService.simulatePayment(loanId, paymentNumber, extraAmount, jwt));
+    }
 }

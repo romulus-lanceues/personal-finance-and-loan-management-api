@@ -13,4 +13,6 @@ public interface LoanRepository extends JpaRepository<Loan, UUID> {
     Page<Loan> findByUserIdAndIsDeletedIsFalse(UUID userId, Pageable pageable);
 
     Optional<Loan> findByIdAndUserIdAndIsDeletedFalse(UUID id, UUID userId);
+
+    boolean existsByIdAndUserIdAndIsDeletedFalse(UUID id, UUID userId);
 }

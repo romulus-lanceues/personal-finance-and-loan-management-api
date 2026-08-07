@@ -64,4 +64,13 @@ public class LoanSchedule {
     private Instant updatedAt;
 
 
+    @Override
+    public String toString() {
+        return "LoanSchedule{" +
+                "paymentNumber=" + paymentNumber +
+                ", paymentAmount=" + paymentAmount +
+                ", principalPortion=" + principalPortion +
+                ", remainingBalance="+ remainingBalance +
+                '}';
+    }
 }
