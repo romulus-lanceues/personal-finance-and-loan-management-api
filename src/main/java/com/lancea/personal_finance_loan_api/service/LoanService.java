@@ -7,7 +7,6 @@ import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
 import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
-import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
@@ -57,17 +56,14 @@ public class LoanService {
                 .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist"));
 
 
+        BigDecimal monthlyRate = computeMonthlyRate(request.annualRate());
         BigDecimal monthlyPayment;
-        BigDecimal monthlyRate = BigDecimal.ZERO;
 
         if(request.annualRate().compareTo(BigDecimal.ZERO) == 0){
             monthlyPayment = request.principal().divide(BigDecimal.valueOf(request.termMonths()), SCALE, ROUNDING_MODE);
         }
         else {
-            List<BigDecimal> monthlyRateAndPayment =
-                    calculateMonthlyRateAndPayment(request.principal(), request.annualRate(), request.termMonths());
-            monthlyRate = monthlyRateAndPayment.getFirst();
-            monthlyPayment = monthlyRateAndPayment.getLast();
+            monthlyPayment = calculateMonthlyPayment(request.principal(), monthlyRate, request.termMonths());
         }
 
         Loan loan = Loan.builder()
@@ -84,7 +80,7 @@ public class LoanService {
 
         loanRepository.save(loan);
 
-        List<LoanSchedule> generatedLoanSchedules = createLoanScheduleForInterests(request.principal(), request.termMonths(), request.disbursedAt(), monthlyRate, monthlyPayment, loan);
+        List<LoanSchedule> generatedLoanSchedules = createLoanSchedules(request.principal(), request.termMonths(), request.disbursedAt(), monthlyRate, monthlyPayment, loan);
 
         loanScheduleRepository.saveAll(generatedLoanSchedules);
 
@@ -93,12 +89,8 @@ public class LoanService {
     }
 
 
-    private List<BigDecimal> calculateMonthlyRateAndPayment(BigDecimal principal, BigDecimal annualRate,
+    private BigDecimal calculateMonthlyPayment(BigDecimal principal, BigDecimal monthlyRate,
                                                             int termMonths){
-
-        BigDecimal monthlyRate = annualRate
-                .divide(BigDecimal.valueOf(100), SCALE, ROUNDING_MODE)
-                .divide(BigDecimal.valueOf(12), SCALE, ROUNDING_MODE);
 
         BigDecimal monthlyRatePlusOneToThePowOfTerm = BigDecimal.ONE
                 .add(monthlyRate)
@@ -110,13 +102,10 @@ public class LoanService {
 
         BigDecimal factor = numerator.divide(denominator, SCALE, ROUNDING_MODE);
 
-        BigDecimal monthlyPayment = principal.multiply(factor).setScale(4, ROUNDING_MODE);
-
-        return List.of(monthlyRate, monthlyPayment);
-
+        return principal.multiply(factor).setScale(4, ROUNDING_MODE);
     }
 
-    private List<LoanSchedule> createLoanScheduleForInterests(BigDecimal principal, int termMonths,
+    private List<LoanSchedule> createLoanSchedules(BigDecimal principal, int termMonths,
                                                               Instant disbursedAt, BigDecimal monthlyRate,
                                                               BigDecimal monthlyPayment, Loan loan){
         BigDecimal remainingBalance = principal;
@@ -167,6 +156,7 @@ public class LoanService {
 
         return monthlySchedule;
     }
+
 
     public PagedLoanResponse getUserLoans(Pageable pageable, Jwt jwt){
 
@@ -220,12 +210,11 @@ public class LoanService {
                 switch (Integer.signum(loanADetails.amountPayable().compareTo(loanBDetails.amountPayable()))) {
                     case  1 -> loanB.getLoanName();
                     case -1 -> loanA.getLoanName();
-                    default -> "Both loans cost the same";
+                    default -> "Both loans have equal payable amount";
                 };
 
 
         return new LoanComparisonResponse (loanADetails, loanBDetails, interestDifference, monthlyDifference, loanWithLowerCost);
-
     }
 
     private LoanDetails calculateLoanDetails(Loan loan) {
@@ -242,8 +231,6 @@ public class LoanService {
                 loan.getAnnualRate(),
                 totalAmountPayable,
                 totalInterestPaid);
-
-
     }
 
     public LoanSimulationResponse simulatePayment (UUID loanId, int paymentNumber,
@@ -327,18 +314,8 @@ public class LoanService {
 
         }
 
-
         return buildSimulationResponse(loan, paymentNumber, extraAmount, simulatedSchedule);
-
 }
-
-    private BigDecimal computeMonthlyRate(BigDecimal annualRate){
-        if(annualRate.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
-
-        return annualRate
-                .divide(BigDecimal.valueOf(12), SCALE, ROUNDING_MODE)
-                .divide(BigDecimal.valueOf(100), SCALE, ROUNDING_MODE);
-    }
 
     private LoanSimulationResponse buildFullPayoffResponse(Loan loan, int startPaymentNumber){
 
@@ -355,8 +332,6 @@ public class LoanService {
         int monthsSaved = remainingActualLoanSchedule.size();
 
         return new LoanSimulationResponse(new ArrayList<>(), savedInterest, monthsSaved);
-
-
     }
 
     private LoanSimulationResponse buildSimulationResponse(Loan loan, int startPaymentNumber,
@@ -387,6 +362,15 @@ public class LoanService {
                 .toList();
 
         return new LoanSimulationResponse(loanScheduleResponses, interestSaved, monthsSaved);
+    }
+
+
+    private BigDecimal computeMonthlyRate(BigDecimal annualRate){
+        if(annualRate.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+
+        return annualRate
+                .divide(BigDecimal.valueOf(12), SCALE, ROUNDING_MODE)
+                .divide(BigDecimal.valueOf(100), SCALE, ROUNDING_MODE);
     }
 
 }
