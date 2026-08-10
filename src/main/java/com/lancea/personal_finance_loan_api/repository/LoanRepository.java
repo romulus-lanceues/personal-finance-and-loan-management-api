@@ -1,6 +1,7 @@
 package com.lancea.personal_finance_loan_api.repository;
 
 import com.lancea.personal_finance_loan_api.entity.Loan;
+import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -15,4 +16,7 @@ public interface LoanRepository extends JpaRepository<Loan, UUID> {
     Optional<Loan> findByIdAndUserIdAndIsDeletedFalse(UUID id, UUID userId);
 
     boolean existsByIdAndUserIdAndIsDeletedFalse(UUID id, UUID userId);
+
+    Optional<Loan> findByIdAndUserIdAndIsDeletedFalseAndStatus(UUID id, UUID userId, LoanStatus loanStatus);
+
 }

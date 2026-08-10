@@ -1,15 +1,14 @@
 package com.lancea.personal_finance_loan_api.controller;
 
+import com.lancea.personal_finance_loan_api.dto.request.LoanPaymentRequest;
+import com.lancea.personal_finance_loan_api.dto.response.LoanPaymentResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanScheduleResponse;
 import com.lancea.personal_finance_loan_api.service.LoanScheduleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
@@ -34,4 +33,14 @@ public class LoanScheduleController {
         return ResponseEntity.ok(loanScheduleService
                 .getSpecificLoanSchedule(loanId, paymentNumber, jwt));
     }
+
+    @PostMapping("/{paymentNumber}/pay")
+    public ResponseEntity<LoanPaymentResponse> payInstallment(@PathVariable UUID loanId,
+                                                              @PathVariable int paymentNumber,
+                                                              @RequestBody LoanPaymentRequest loanPaymentRequest,
+                                                              @AuthenticationPrincipal Jwt jwt){
+
+        return ResponseEntity.ok(loanScheduleService.payInstallment(loanId, paymentNumber, loanPaymentRequest, jwt));
+    }
+
 }
