@@ -17,6 +17,5 @@ public interface LoanRepository extends JpaRepository<Loan, UUID> {
 
     boolean existsByIdAndUserIdAndIsDeletedFalse(UUID id, UUID userId);
 
-    Optional<Loan> findByIdAndUserIdAndIsDeletedFalseAndStatus(UUID id, UUID userId, LoanStatus loanStatus);
 
 }

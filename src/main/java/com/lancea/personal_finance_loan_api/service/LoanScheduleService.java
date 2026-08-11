@@ -24,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -68,15 +69,14 @@ public class LoanScheduleService {
     @Transactional
     public LoanPaymentResponse payInstallment(UUID loanId, int paymentNumber,
                                LoanPaymentRequest loanPaymentRequest, Jwt jwt){
+
         UUID userId = UserUtility.getUserId(jwt);
 
-        Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalseAndStatus(loanId, userId, LoanStatus.ACTIVE)
+        Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Loan doesn't exist"));
-
 
         LoanSchedule loanSchedule = loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber)
                 .orElseThrow( () -> new ResourceNotFoundException("Payment schedule not found"));
-
 
         Optional<Transaction> existingTransaction = transactionRepository
                 .findByIdempotencyKey(loanPaymentRequest.idempotencyKey());
@@ -85,17 +85,12 @@ public class LoanScheduleService {
             return generateLoanPaymentResponse(loan, loanSchedule, existingTransaction.get());
         }
 
-        if(loanSchedule.getStatus() == LoanScheduleStatus.PAID) throw new BadRequestException("This installment has already been paid");
-
-        boolean hasPendingPreviousPayments = loanScheduleRepository
-                .existsByLoanIdAndPaymentNumberLessThanAndStatus(loanId, paymentNumber, LoanScheduleStatus.PENDING);
-
-        if(hasPendingPreviousPayments) throw new BadRequestException("Previous installment must be paid before this one");
+        checkIfLoanIsPaidOff(loan);
+        checkIfLoanScheduleIsAlreadyPaid(loanSchedule);
+        checkForPreviousTransaction(loanId, paymentNumber);
 
         Account account = loan.getAccount();
-
-        if(!account.getIsActive() || account.getBalance().compareTo(loanSchedule.getPaymentAmount()) < 0)
-            throw new BadRequestException("Account must be active and have enough balance");
+        validateAccountEligibleForTransaction(account, loanSchedule.getPaymentAmount());
 
         account.setBalance(account.getBalance()
                 .subtract(loanSchedule.getPaymentAmount()));
@@ -113,6 +108,7 @@ public class LoanScheduleService {
                 .transactedAt(Instant.now())
                 .build();
 
+
         boolean isThereARemainingPendingPaymentSchedule = loanScheduleRepository
                 .existsByLoanIdAndPaymentNumberGreaterThanAndStatus(loanId, paymentNumber, LoanScheduleStatus.PENDING);
 
@@ -126,6 +122,29 @@ public class LoanScheduleService {
         accountRepository.save(account);
 
         return generateLoanPaymentResponse(loan, loanSchedule, transactionCopyOfThePayment);
+    }
+
+    private void checkIfLoanIsPaidOff(Loan loan){
+        if(loan.getStatus() == LoanStatus.PAID_OFF) throw new BadRequestException("Loan is paid off");
+    }
+
+    private void checkIfLoanScheduleIsAlreadyPaid(LoanSchedule loanSchedule){
+        if(loanSchedule.getStatus() == LoanScheduleStatus.PAID) throw new BadRequestException("This schedule has already been paid");
+    }
+
+    private void checkForPreviousTransaction(UUID loanId, int paymentNumber){
+        boolean hasPendingPreviousPayments = loanScheduleRepository
+                .existsByLoanIdAndPaymentNumberLessThanAndStatus(loanId, paymentNumber, LoanScheduleStatus.PENDING);
+
+        if(hasPendingPreviousPayments) throw new BadRequestException("Previous installment must be paid before this one");
+    }
+
+    private void validateAccountEligibleForTransaction(Account account, BigDecimal amount){
+
+        if(account.getIsActive())  throw new BadRequestException("Account must be active");
+
+        if(account.getBalance().compareTo(amount) < 0) throw new BadRequestException("Account doesn't have enough balance");
+
     }
 
     private LoanPaymentResponse generateLoanPaymentResponse (Loan loan, LoanSchedule loanSchedule, Transaction transaction){
