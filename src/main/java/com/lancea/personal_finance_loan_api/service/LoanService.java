@@ -24,7 +24,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -46,7 +45,6 @@ public class LoanService {
     @Transactional
     public LoanResponse createLoan(LoanRequest request, Jwt jwt){
 
-
         UUID userId = UserUtility.getUserId(jwt);
 
         User user = userRepository.findById(userId)
@@ -57,14 +55,8 @@ public class LoanService {
 
 
         BigDecimal monthlyRate = computeMonthlyRate(request.annualRate());
-        BigDecimal monthlyPayment;
-
-        if(request.annualRate().compareTo(BigDecimal.ZERO) == 0){
-            monthlyPayment = request.principal().divide(BigDecimal.valueOf(request.termMonths()), SCALE, ROUNDING_MODE);
-        }
-        else {
-            monthlyPayment = calculateMonthlyPayment(request.principal(), monthlyRate, request.termMonths());
-        }
+        BigDecimal monthlyPayment = determineMonthlyPayment(request.annualRate(), request.principal(),
+                request.termMonths(), monthlyRate);
 
         Loan loan = Loan.builder()
                 .user(user)
@@ -75,17 +67,30 @@ public class LoanService {
                 .termMonths(request.termMonths())
                 .monthlyPayment(monthlyPayment)
                 .disbursedAt(request.disbursedAt())
-                .maturityDate(request.disbursedAt().plus(Duration.ofDays( (long) 30 * request.termMonths())))
+                .maturityDate(computeMaturityDate(request.disbursedAt(), request.termMonths()))
                 .build();
 
         loanRepository.save(loan);
 
-        List<LoanSchedule> generatedLoanSchedules = createLoanSchedules(request.principal(), request.termMonths(), request.disbursedAt(), monthlyRate, monthlyPayment, loan);
+        List<LoanSchedule> generatedLoanSchedules = createLoanSchedules(request.principal(), request.termMonths(),
+                request.disbursedAt(), monthlyRate, monthlyPayment, loan);
 
         loanScheduleRepository.saveAll(generatedLoanSchedules);
 
 
         return new LoanResponse(loan.getId(), loan.getLoanName(), loan.getCreatedAt());
+    }
+
+    private BigDecimal determineMonthlyPayment(BigDecimal annualRate, BigDecimal principal,
+                                               int termMonths, BigDecimal monthlyRate){
+
+        if(annualRate.compareTo(BigDecimal.ZERO) == 0){
+             return principal.divide(BigDecimal.valueOf(termMonths), SCALE, ROUNDING_MODE);
+        }
+        else {
+            return calculateMonthlyPayment(principal, monthlyRate, termMonths);
+        }
+
     }
 
 
@@ -103,6 +108,10 @@ public class LoanService {
         BigDecimal factor = numerator.divide(denominator, SCALE, ROUNDING_MODE);
 
         return principal.multiply(factor).setScale(4, ROUNDING_MODE);
+    }
+
+    private Instant computeMaturityDate(Instant disbursedAt, int termMonths){
+        return disbursedAt.atZone(ZoneOffset.UTC).plusMonths(termMonths).toInstant();
     }
 
     private List<LoanSchedule> createLoanSchedules(BigDecimal principal, int termMonths,
@@ -241,19 +250,12 @@ public class LoanService {
         Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId)
                 .orElseThrow( () -> new RuntimeException("Loan not found"));
 
-        if (extraAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException("Extra amount must be greater than zero");
-        }
+        validateExtraAmount(extraAmount);
 
-        LoanSchedule targetRow = loanScheduleRepository
-                .findByLoanIdAndPaymentNumber(loanId, paymentNumber)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Payment number not found in schedule"));
+        LoanSchedule targetRow = loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment number not found in schedule"));
 
-        if (targetRow.getStatus() != LoanScheduleStatus.PENDING) {
-            throw new BadRequestException(
-                    "Cannot simulate against an installment that is already paid");
-        }
+        validateRow(targetRow);
 
 
         BigDecimal monthlyRate = computeMonthlyRate(loan.getAnnualRate());
@@ -316,6 +318,18 @@ public class LoanService {
 
         return buildSimulationResponse(loan, paymentNumber, extraAmount, simulatedSchedule);
 }
+
+    private void validateExtraAmount(BigDecimal extraAmount){
+        if (extraAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Extra amount must be greater than zero");
+        }
+    }
+
+    private void validateRow(LoanSchedule targetRow){
+        if (targetRow.getStatus() != LoanScheduleStatus.PENDING) {
+            throw new BadRequestException("Cannot simulate against an installment that is already paid");
+        }
+    }
 
     private LoanSimulationResponse buildFullPayoffResponse(Loan loan, int startPaymentNumber){
 
