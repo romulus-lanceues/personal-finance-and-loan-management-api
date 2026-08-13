@@ -6,6 +6,7 @@ import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanSimulationResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.service.LoanService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -27,7 +28,7 @@ public class LoanController {
     private final LoanService loanService;
 
     @PostMapping
-    public ResponseEntity<LoanResponse> createLoan(@RequestBody LoanRequest loanRequest,
+    public ResponseEntity<LoanResponse> createLoan(@Valid @RequestBody LoanRequest loanRequest,
                                                    @AuthenticationPrincipal Jwt jwt){
 
         LoanResponse response = loanService.createLoan(loanRequest, jwt);

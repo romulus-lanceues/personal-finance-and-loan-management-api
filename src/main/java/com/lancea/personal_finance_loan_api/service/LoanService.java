@@ -375,6 +375,9 @@ public class LoanService {
 
 
     private BigDecimal computeMonthlyRate(BigDecimal annualRate){
+
+        if(annualRate.compareTo(BigDecimal.ZERO) < 0) throw new BadRequestException("Interest must not be negative");
+
         if(annualRate.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
 
         return annualRate

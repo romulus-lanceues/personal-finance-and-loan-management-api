@@ -22,7 +22,6 @@ public record LoanRequest(
         BigDecimal principal,
 
         @NotNull(message = "Annual rate shouldn't be blank")
-        @Positive(message = "Annual rate must be valid")
         BigDecimal annualRate,
 
         @NotNull(message = "Term months shouldn't be blank")

@@ -141,7 +141,7 @@ public class LoanScheduleService {
 
     private void validateAccountEligibleForTransaction(Account account, BigDecimal amount){
 
-        if(account.getIsActive())  throw new BadRequestException("Account must be active");
+        if(!account.getIsActive())  throw new BadRequestException("Account must be active");
 
         if(account.getBalance().compareTo(amount) < 0) throw new BadRequestException("Account doesn't have enough balance");
 
