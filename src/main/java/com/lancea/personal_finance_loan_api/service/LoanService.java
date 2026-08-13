@@ -67,7 +67,7 @@ public class LoanService {
                 .termMonths(request.termMonths())
                 .monthlyPayment(monthlyPayment)
                 .disbursedAt(request.disbursedAt())
-                .maturityDate(computeMaturityDate(request.disbursedAt(), request.termMonths()))
+                .maturityDate(request.disbursedAt().plusMonths(request.termMonths()))
                 .build();
 
         loanRepository.save(loan);
@@ -110,12 +110,9 @@ public class LoanService {
         return principal.multiply(factor).setScale(4, ROUNDING_MODE);
     }
 
-    private Instant computeMaturityDate(Instant disbursedAt, int termMonths){
-        return disbursedAt.atZone(ZoneOffset.UTC).plusMonths(termMonths).toInstant();
-    }
 
     private List<LoanSchedule> createLoanSchedules(BigDecimal principal, int termMonths,
-                                                              Instant disbursedAt, BigDecimal monthlyRate,
+                                                              LocalDate disbursedAt, BigDecimal monthlyRate,
                                                               BigDecimal monthlyPayment, Loan loan){
         BigDecimal remainingBalance = principal;
 
@@ -135,9 +132,7 @@ public class LoanService {
                     .subtract(principalPortion)
                     .setScale(4, ROUNDING_MODE);
 
-            LocalDate dueDate = disbursedAt.atZone(ZoneOffset.UTC)
-                            .toLocalDate()
-                            .plusMonths(paymentNumber);
+            LocalDate dueDate = disbursedAt.plusMonths(paymentNumber);
 
             monthlySchedule.add(LoanSchedule.builder()
                             .loan(loan)
@@ -257,7 +252,6 @@ public class LoanService {
 
         validateRow(targetRow);
 
-
         BigDecimal monthlyRate = computeMonthlyRate(loan.getAnnualRate());
         BigDecimal monthlyPayment = loan.getMonthlyPayment();
 
@@ -269,7 +263,7 @@ public class LoanService {
         }
 
         List<LoanSchedule> simulatedSchedule = new ArrayList<>();
-        LocalDate disbursedDate = loan.getDisbursedAt().atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate disbursedDate = loan.getDisbursedAt();
 
         int simulatedPaymentNumber = paymentNumber + 1;
         int maxIterations = loan.getTermMonths() - paymentNumber;
@@ -289,6 +283,7 @@ public class LoanService {
                     .setScale(4, ROUNDING_MODE);
 
             BigDecimal actualPayment = monthlyPayment;
+
 
             if(principalPortion.compareTo(remainingBalance) >= 0){
                 principalPortion = remainingBalance;
@@ -386,5 +381,4 @@ public class LoanService {
                 .divide(BigDecimal.valueOf(12), SCALE, ROUNDING_MODE)
                 .divide(BigDecimal.valueOf(100), SCALE, ROUNDING_MODE);
     }
-
 }

@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public record LoanRequest(
@@ -29,5 +30,5 @@ public record LoanRequest(
         int termMonths,
 
         @NotNull(message = "Disbursed date shouldn't be blank")
-        Instant disbursedAt) {
+        LocalDate disbursedAt) {
 }
