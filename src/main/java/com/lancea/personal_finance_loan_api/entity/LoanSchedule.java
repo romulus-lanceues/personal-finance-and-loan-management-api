@@ -62,15 +62,4 @@ public class LoanSchedule {
     @LastModifiedDate
     @Column(nullable = false)
     private Instant updatedAt;
-
-
-    @Override
-    public String toString() {
-        return "LoanSchedule{" +
-                "paymentNumber=" + paymentNumber +
-                ", paymentAmount=" + paymentAmount +
-                ", principalPortion=" + principalPortion +
-                ", remainingBalance="+ remainingBalance +
-                '}';
-    }
 }
