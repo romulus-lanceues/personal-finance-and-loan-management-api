@@ -65,6 +65,7 @@ public class Transaction {
     @Column(nullable = false)
     private Instant transactedAt;
 
+    @Column
     private String transferReference;
 
     @CreatedDate

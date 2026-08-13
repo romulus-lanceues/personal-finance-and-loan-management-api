@@ -62,6 +62,4 @@ public class LoanSchedule {
     @LastModifiedDate
     @Column(nullable = false)
     private Instant updatedAt;
-
-
 }
