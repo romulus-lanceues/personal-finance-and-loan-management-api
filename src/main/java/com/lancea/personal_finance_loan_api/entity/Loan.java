@@ -10,6 +10,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -53,16 +54,18 @@ public class Loan {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal monthlyPayment;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private LoanStatus status = LoanStatus.ACTIVE;
 
     @Column(nullable = false)
-    private Instant disbursedAt;
+    private LocalDate disbursedAt;
 
     @Column(nullable = false)
-    private Instant maturityDate;
+    private LocalDate maturityDate;
 
+    @Builder.Default
     @Column(nullable = false)
     private boolean isDeleted = false;
 
