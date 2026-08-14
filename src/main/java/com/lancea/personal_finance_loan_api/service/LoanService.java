@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.response.*;
 import com.lancea.personal_finance_loan_api.entity.Account;
@@ -159,7 +160,7 @@ public class LoanService {
         return monthlySchedule;
     }
 
-
+    @Auditable(action = "view", entityType = "loan")
     public PagedLoanResponse getUserLoans(Pageable pageable, Jwt jwt){
 
         UUID userId = UserUtility.getUserId(jwt);
