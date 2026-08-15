@@ -108,7 +108,7 @@ public class AccountService {
 
     @Transactional
     @Auditable(action = "ACCOUNT_DELETED", entityType = "ACCOUNT")
-    public void deleteAccount(UUID accountId, Jwt jwt){
+    public AccountResponse deleteAccount(UUID accountId, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
@@ -118,6 +118,8 @@ public class AccountService {
         account.setDeletedAt(Instant.now());
 
         accountRepository.save(account);
+
+        return AccountResponse.of(account);
     }
 
 }

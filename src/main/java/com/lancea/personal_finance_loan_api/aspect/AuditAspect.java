@@ -42,48 +42,27 @@ public class AuditAspect {
     public void createAudit(JoinPoint joinPoint, Auditable auditableAnnotation, Object result){
 
         try{
-
             User user = validateUser();
             String ipAddress = retrieveIp();
             String action = auditableAnnotation.action();
             String entityType = auditableAnnotation.entityType();
+            AuditableInterface auditableResult = (AuditableInterface) result;
 
-            if(result instanceof AuditableInterface auditableResult){
+            UUID resultId =  auditableResult.getResultObjectId();
+            Map<String, Object> details = auditableResult.generateAuditDetails();
+            String serializedDetails = serializeDetails(details);
 
-                UUID resultId =  auditableResult.getResultObjectId();
-                Map<String, Object> details = auditableResult.generateAuditDetails();
-                String serializedDetails = serializeDetails(details);
+            AuditLog auditLog = AuditLog.builder()
+                    .user(user)
+                    .action(action)
+                    .entityType(entityType)
+                    .entityId(resultId)
+                    .details(serializedDetails)
+                    .ipAddress(ipAddress)
+                    .build();
 
-                AuditLog auditLog = AuditLog.builder()
-                        .user(user)
-                        .action(action)
-                        .entityType(entityType)
-                        .entityId(resultId)
-                        .details(serializedDetails)
-                        .ipAddress(ipAddress)
-                        .build();
+            auditLogRepository.save(auditLog);
 
-                auditLogRepository.save(auditLog);
-            }
-            else {
-                log.warn("Delete method encountered");
-
-                Object[] args = joinPoint.getArgs();
-                Map<String, Object> details = createAuditDetailsForDeleteAction((UUID) args[0]);
-                String serializedDetails = serializeDetails(details);
-
-                AuditLog auditLog = AuditLog.builder()
-                        .user(user)
-                        .action(action)
-                        .entityType(entityType)
-                        .entityId((UUID) args[0])
-                        .details(serializedDetails)
-                        .ipAddress(ipAddress)
-                        .build();
-
-                auditLogRepository.save(auditLog);
-
-            }
         }
         catch (Exception e){
             log.warn("Exception encountered: ", e);
@@ -114,21 +93,6 @@ public class AuditAspect {
             log.warn("Failed to serialize details: ", e);
             return "{}";
         }
-    }
-
-    @Transactional
-    private Map<String, Object> createAuditDetailsForDeleteAction(UUID accountId ){
-        Map<String, Object> details = new LinkedHashMap<>();
-        Account accountProxy = accountRepository.getReferenceById(accountId);
-
-        details.put("accountId", accountId);
-        details.put("accountName", accountProxy.getAccountName());
-        details.put("accountType", accountProxy.getAccountType());
-        details.put("balance", accountProxy.getBalance());
-        details.put("currency", accountProxy.getCurrency());
-        details.put("isActive", accountProxy.getIsActive());
-
-        return details;
     }
 
 }
