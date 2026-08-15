@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.enums.AccountType;
 import com.lancea.personal_finance_loan_api.enums.Currency;
@@ -30,6 +31,7 @@ public record AccountResponse  (
         );
     }
 
+    @JsonIgnore
     @Override
     public UUID getResultObjectId(){
         return this.id;

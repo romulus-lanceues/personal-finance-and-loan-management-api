@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.lancea.personal_finance_loan_api.entity.User;
 
 import java.time.Instant;
@@ -20,6 +21,7 @@ public record UserResponse(
                                 user.getFullName(), user.getIsDeleted(), user.getUpdatedAt());
     }
 
+    @JsonIgnore
     @Override
     public UUID getResultObjectId() {
         return id;
