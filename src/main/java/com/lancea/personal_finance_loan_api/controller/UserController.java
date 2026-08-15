@@ -3,6 +3,7 @@ package com.lancea.personal_finance_loan_api.controller;
 
 import com.lancea.personal_finance_loan_api.dto.request.UpdateInfoRequest;
 import com.lancea.personal_finance_loan_api.dto.response.PersonalInfo;
+import com.lancea.personal_finance_loan_api.dto.response.UserResponse;
 import com.lancea.personal_finance_loan_api.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,11 +19,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class UserController {
 
-    private UserService userService;
-
-    public UserController (UserService userService){
-        this.userService = userService;
-    }
+    private final UserService userService;
 
     @GetMapping("/me")
     public ResponseEntity<PersonalInfo> me (@AuthenticationPrincipal Jwt jwt){
@@ -31,17 +28,16 @@ public class UserController {
     }
 
     @PutMapping("/me")
-    public ResponseEntity<Void> updatePersonalInfo (@Valid @RequestBody UpdateInfoRequest updateInfoRequest,
-                                                    @AuthenticationPrincipal Jwt jwt){
+    public ResponseEntity<UserResponse> updatePersonalInfo (@Valid @RequestBody UpdateInfoRequest updateInfoRequest,
+                                                            @AuthenticationPrincipal Jwt jwt){
 
-        userService.updatePersonalInfo(updateInfoRequest, jwt);
-        return ResponseEntity.status(HttpStatus.OK).build();
+        return ResponseEntity.ok(userService.updatePersonalInfo(updateInfoRequest, jwt));
     }
 
     @DeleteMapping("/me")
     public ResponseEntity<Void> deleteUser (@AuthenticationPrincipal Jwt jwt){
         userService.deleteUser(jwt);
-        return ResponseEntity.status(HttpStatus.OK).build();
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
 }

@@ -22,6 +22,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import tools.jackson.databind.ObjectMapper;
 
+import java.lang.reflect.Executable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -40,47 +41,54 @@ public class AuditAspect {
     @AfterReturning(value = "@annotation(auditableAnnotation)", returning = "result")
     public void createAudit(JoinPoint joinPoint, Auditable auditableAnnotation, Object result){
 
+        try{
+
             User user = validateUser();
             String ipAddress = retrieveIp();
             String action = auditableAnnotation.action();
             String entityType = auditableAnnotation.entityType();
 
-        if(result instanceof AuditableInterface auditableResult){
+            if(result instanceof AuditableInterface auditableResult){
 
-            UUID resultId =  auditableResult.getResultObjectId();
-            Map<String, Object> details = auditableResult.generateAuditDetails();
-            String serializedDetails = serializeDetails(details);
+                UUID resultId =  auditableResult.getResultObjectId();
+                Map<String, Object> details = auditableResult.generateAuditDetails();
+                String serializedDetails = serializeDetails(details);
 
-            AuditLog auditLog = AuditLog.builder()
-                    .user(user)
-                    .action(action)
-                    .entityType(entityType)
-                    .entityId(resultId)
-                    .details(serializedDetails)
-                    .ipAddress(ipAddress)
-                    .build();
+                AuditLog auditLog = AuditLog.builder()
+                        .user(user)
+                        .action(action)
+                        .entityType(entityType)
+                        .entityId(resultId)
+                        .details(serializedDetails)
+                        .ipAddress(ipAddress)
+                        .build();
 
-            auditLogRepository.save(auditLog);
+                auditLogRepository.save(auditLog);
+            }
+            else {
+                log.warn("Delete method encountered");
+
+                Object[] args = joinPoint.getArgs();
+                Map<String, Object> details = createAuditDetailsForDeleteAction((UUID) args[0]);
+                String serializedDetails = serializeDetails(details);
+
+                AuditLog auditLog = AuditLog.builder()
+                        .user(user)
+                        .action(action)
+                        .entityType(entityType)
+                        .entityId((UUID) args[0])
+                        .details(serializedDetails)
+                        .ipAddress(ipAddress)
+                        .build();
+
+                auditLogRepository.save(auditLog);
+
+            }
         }
-        else {
-            log.warn("Delete method encountered");
-
-            Object[] args = joinPoint.getArgs();
-            Map<String, Object> details = createAuditDetailsForDeleteAction((UUID) args[0]);
-            String serializedDetails = serializeDetails(details);
-
-            AuditLog auditLog = AuditLog.builder()
-                    .user(user)
-                    .action(action)
-                    .entityType(entityType)
-                    .entityId((UUID) args[0])
-                    .details(serializedDetails)
-                    .ipAddress(ipAddress)
-                    .build();
-
-            auditLogRepository.save(auditLog);
-
+        catch (Exception e){
+            log.warn("Exception encountered: ", e);
         }
+
 
     }
 

@@ -36,7 +36,6 @@ public class AccountService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found" + userId));
 
-
         Account newAccount = Account.builder()
                 .user(user)
                 .accountName(accountRequest.accountName())
