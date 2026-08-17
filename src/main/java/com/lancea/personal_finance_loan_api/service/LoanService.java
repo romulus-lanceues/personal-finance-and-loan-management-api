@@ -41,6 +41,7 @@ public class LoanService {
     private final LoanRepository loanRepository;
     private final LoanScheduleRepository loanScheduleRepository;
 
+    @Auditable(action = "LOAN_CREATED", entityType = "LOAN")
     @Transactional
     public LoanResponse createLoan(LoanRequest request, Jwt jwt){
 
@@ -77,7 +78,7 @@ public class LoanService {
         loanScheduleRepository.saveAll(generatedLoanSchedules);
 
 
-        return new LoanResponse(loan.getId(), loan.getLoanName(), loan.getCreatedAt());
+        return  LoanResponse.of(loan);
     }
 
     private BigDecimal determineMonthlyPayment(BigDecimal annualRate, BigDecimal principal,
@@ -160,7 +161,7 @@ public class LoanService {
         return monthlySchedule;
     }
 
-    @Auditable(action = "view", entityType = "loan")
+
     public PagedLoanResponse getUserLoans(Pageable pageable, Jwt jwt){
 
         UUID userId = UserUtility.getUserId(jwt);

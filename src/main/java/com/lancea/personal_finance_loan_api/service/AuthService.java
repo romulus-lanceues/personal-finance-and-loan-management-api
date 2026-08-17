@@ -27,6 +27,7 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtTokenService jwtTokenService;
 
+
     public AuthenticationResponse registerUser(AuthenticationRequest authenticationRequest){
 
         User newUser = User.builder()
