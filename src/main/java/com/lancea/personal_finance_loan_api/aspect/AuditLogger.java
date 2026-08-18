@@ -29,7 +29,7 @@ public class AuditLogger {
         String entityType = auditableAnnotation.entityType();
         AuditableInterface auditableResult = (AuditableInterface) result;
 
-        UUID resultId =  auditableResult.getResultObjectId();
+        UUID resultId =  auditableResult.getResultEntityId();
         Map<String, Object> details = auditableResult.generateAuditDetails();
         String serializedDetails = serializeDetails(details);
 

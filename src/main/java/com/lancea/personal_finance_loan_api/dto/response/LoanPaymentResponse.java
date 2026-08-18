@@ -12,8 +12,8 @@ public record LoanPaymentResponse(
 
 
     @Override
-    public UUID getResultObjectId() {
-        return loanScheduleResponse.id();
+    public UUID getResultEntityId() {
+        return loanResponse.loanId();
     }
 
     @Override

@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public interface AuditableInterface {
 
-    public UUID getResultObjectId();
+    public UUID getResultEntityId();
 
     public Map<String, Object> generateAuditDetails();
 }

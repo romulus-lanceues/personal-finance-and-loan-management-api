@@ -33,7 +33,7 @@ public record AccountResponse  (
 
     @JsonIgnore
     @Override
-    public UUID getResultObjectId(){
+    public UUID getResultEntityId(){
         return this.id;
     }
 

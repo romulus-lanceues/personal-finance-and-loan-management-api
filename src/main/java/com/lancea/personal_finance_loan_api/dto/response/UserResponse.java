@@ -23,7 +23,7 @@ public record UserResponse(
 
     @JsonIgnore
     @Override
-    public UUID getResultObjectId() {
+    public UUID getResultEntityId() {
         return id;
     }
 

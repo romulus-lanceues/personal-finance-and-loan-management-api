@@ -38,8 +38,8 @@ public record TransactionResponse(
 
     @JsonIgnore
     @Override
-    public UUID getResultObjectId() {
-        return this.id;
+    public UUID getResultEntityId() {
+        return this.accountId;
     }
 
     @Override

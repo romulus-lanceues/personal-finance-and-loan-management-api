@@ -40,8 +40,8 @@ public record LoanResponse (
 
     @JsonIgnore
     @Override
-    public UUID getResultObjectId() {
-        return this.loanId;
+    public UUID getResultEntityId() {
+        return this.accountId;
     }
 
     @Override
