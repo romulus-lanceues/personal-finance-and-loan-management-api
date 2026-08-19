@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
 import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
@@ -35,6 +36,7 @@ public class TransactionService {
     private final AccountRepository accountRepository;
     private final ReferenceNumberGenerator referenceNumberGenerator;
 
+    @Auditable(action = "DEPOSIT", entityType = "TRANSACTION")
     @Transactional
     public TransactionResponse deposit(DepositRequest depositRequest, Jwt jwt){
 
@@ -69,6 +71,7 @@ public class TransactionService {
 
     }
 
+    @Auditable(action = "WITHDRAWAL", entityType = "TRANSACTION")
     @Transactional
     public TransactionResponse withdraw(WithdrawRequest withdrawRequest, Jwt jwt){
 
@@ -107,6 +110,7 @@ public class TransactionService {
 
     }
 
+    @Auditable(action = "TRANSFER", entityType = "TRANSACTION")
     @Transactional
     public List<TransactionResponse> transfer(TransferRequest transferRequest, Jwt jwt){
 

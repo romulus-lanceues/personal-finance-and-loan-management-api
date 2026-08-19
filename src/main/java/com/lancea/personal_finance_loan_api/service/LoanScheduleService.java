@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.LoanPaymentRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanPaymentResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
@@ -66,6 +67,7 @@ public class LoanScheduleService {
         return LoanScheduleResponse.of(loanSchedule);
     }
 
+    @Auditable(action = "LOAN_PAYMENT", entityType = "LOAN_SCHEDULE")
     @Transactional
     public LoanPaymentResponse payInstallment(UUID loanId, int paymentNumber,
                                LoanPaymentRequest loanPaymentRequest, Jwt jwt){

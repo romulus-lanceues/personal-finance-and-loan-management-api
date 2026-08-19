@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.AccountRequest;
 import com.lancea.personal_finance_loan_api.dto.request.AccountUpdateRequest;
 import com.lancea.personal_finance_loan_api.dto.response.AccountResponse;
@@ -28,12 +29,12 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
 
+    @Auditable(action = "ACCOUNT_CREATED", entityType = "ACCOUNT")
     public AccountResponse createAccount(Jwt jwt, AccountRequest accountRequest){
         UUID userId = UserUtility.getUserId(jwt);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found" + userId));
-
 
         Account newAccount = Account.builder()
                 .user(user)
@@ -68,6 +69,7 @@ public class AccountService {
     }
 
     @Transactional
+    @Auditable(action = "ACCOUNT_UPDATED", entityType = "ACCOUNT")
     public AccountResponse updateAccount(UUID accountId, AccountUpdateRequest updateRequest,
                                          Jwt jwt){
 
@@ -85,6 +87,7 @@ public class AccountService {
 
     }
 
+    @Auditable(action = "ACCOUNT_CLOSED", entityType = "ACCOUNT")
     public AccountResponse closeAccount(UUID accountId, Jwt jwt)  {
 
         UUID userId = UserUtility.getUserId(jwt);
@@ -102,8 +105,10 @@ public class AccountService {
 
         return AccountResponse.of(account);
     }
-@Transactional
-    public void deleteAccount(UUID accountId, Jwt jwt){
+
+    @Transactional
+    @Auditable(action = "ACCOUNT_DELETED", entityType = "ACCOUNT")
+    public AccountResponse deleteAccount(UUID accountId, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
@@ -113,6 +118,8 @@ public class AccountService {
         account.setDeletedAt(Instant.now());
 
         accountRepository.save(account);
+
+        return AccountResponse.of(account);
     }
 
 }

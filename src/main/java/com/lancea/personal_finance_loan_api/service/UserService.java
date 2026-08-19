@@ -1,8 +1,10 @@
 package com.lancea.personal_finance_loan_api.service;
 
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.UpdateInfoRequest;
 import com.lancea.personal_finance_loan_api.dto.response.PersonalInfo;
+import com.lancea.personal_finance_loan_api.dto.response.UserResponse;
 import com.lancea.personal_finance_loan_api.entity.User;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.UserRepository;
@@ -28,20 +30,23 @@ public class UserService {
 
     }
 
-    public void updatePersonalInfo(UpdateInfoRequest updateInfoRequest, Jwt jwt){
+    @Auditable(action = "USER_UPDATED", entityType = "USER")
+    public UserResponse updatePersonalInfo(UpdateInfoRequest updateInfoRequest, Jwt jwt){
 
         User user = getUserOrThrow(jwt);
 
         if(updateInfoRequest.fullName() == null){
             user.setEmail(updateInfoRequest.email());
             userRepository.save(user);
-            return;
+
+            return UserResponse.of(user);
         }
 
         else if(updateInfoRequest.email() == null) {
             user.setFullName(updateInfoRequest.fullName());
             userRepository.save(user);
-            return;
+
+            return UserResponse.of(user);
         }
 
         user.setEmail(updateInfoRequest.email());
@@ -49,9 +54,12 @@ public class UserService {
 
 
         userRepository.save(user);
+
+        return UserResponse.of(user);
     }
 
-    public void deleteUser (Jwt jwt){
+    @Auditable(action = "USER_DELETED", entityType = "USER")
+    public UserResponse deleteUser (Jwt jwt){
 
         User user =getUserOrThrow(jwt);
 
@@ -59,6 +67,8 @@ public class UserService {
         user.setDeletedAt(Instant.now());
 
         userRepository.save(user);
+
+        return UserResponse.of(user);
     }
 
     private User getUserOrThrow(Jwt jwt) {
