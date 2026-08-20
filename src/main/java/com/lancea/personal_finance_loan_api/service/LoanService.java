@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.response.*;
 import com.lancea.personal_finance_loan_api.entity.Account;
@@ -40,6 +41,7 @@ public class LoanService {
     private final LoanRepository loanRepository;
     private final LoanScheduleRepository loanScheduleRepository;
 
+    @Auditable(action = "LOAN_CREATED", entityType = "LOAN")
     @Transactional
     public LoanResponse createLoan(LoanRequest request, Jwt jwt){
 
@@ -76,7 +78,7 @@ public class LoanService {
         loanScheduleRepository.saveAll(generatedLoanSchedules);
 
 
-        return new LoanResponse(loan.getId(), loan.getLoanName(), loan.getCreatedAt());
+        return  LoanResponse.of(loan);
     }
 
     private BigDecimal determineMonthlyPayment(BigDecimal annualRate, BigDecimal principal,

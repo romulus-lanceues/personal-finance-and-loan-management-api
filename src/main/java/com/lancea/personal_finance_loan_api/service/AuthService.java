@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.AuthenticationRequest;
 import com.lancea.personal_finance_loan_api.dto.response.AuthenticationResponse;
 import com.lancea.personal_finance_loan_api.entity.User;
@@ -25,6 +26,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenService jwtTokenService;
+
 
     public AuthenticationResponse registerUser(AuthenticationRequest authenticationRequest){
 
