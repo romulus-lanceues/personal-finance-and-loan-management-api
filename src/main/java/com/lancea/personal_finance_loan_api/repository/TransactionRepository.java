@@ -31,7 +31,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                 COUNT(t) AS transactionCount
             FROM Transaction t
             WHERE t.account.user.id = :userId
-                AND t.type IN ('WITHDRAWAL', 'TRANSFER', 'LOAN_PAYMENT')
+                AND t.type IN ('WITHDRAWAL', 'TRANSFER', 'LOAN_PAYMENT', 'DEPOSIT')
                 AND EXTRACT(YEAR FROM t.transactedAt) = :year
                 AND EXTRACT(MONTH FROM t.transactedAt) =:month
                 AND t.isDeleted = false

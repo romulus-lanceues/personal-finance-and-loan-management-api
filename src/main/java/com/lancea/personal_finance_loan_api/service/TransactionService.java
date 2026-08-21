@@ -19,14 +19,20 @@ import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +41,7 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final AccountRepository accountRepository;
     private final ReferenceNumberGenerator referenceNumberGenerator;
+    private final CacheManager cacheManager;
 
     @Auditable(action = "DEPOSIT", entityType = "TRANSACTION")
     @Transactional
@@ -66,10 +73,13 @@ public class TransactionService {
                 .transactedAt(Instant.now())
                 .build();
 
+        evictSpendingSummaryCache(userId, transaction.getTransactedAt());
 
         return TransactionResponse.of(transactionRepository.save(transaction));
 
     }
+
+
 
     @Auditable(action = "WITHDRAWAL", entityType = "TRANSACTION")
     @Transactional
@@ -105,6 +115,8 @@ public class TransactionService {
                 .description(withdrawRequest.idempotencyKey())
                 .transactedAt(Instant.now())
                 .build();
+
+        evictSpendingSummaryCache(userId, transaction.getTransactedAt());
 
         return TransactionResponse.of(transactionRepository.save(transaction));
 
@@ -170,7 +182,20 @@ public class TransactionService {
         transactionRepository.save(debit);
         transactionRepository.save(credit);
 
+        evictSpendingSummaryCache(userId, debit.getTransactedAt());
+
         return List.of(TransactionResponse.of(debit), TransactionResponse.of(credit));
+    }
+
+    private void evictSpendingSummaryCache(UUID userId, Instant transactedAt){
+        LocalDate date = transactedAt.atZone(ZoneOffset.UTC).toLocalDate();
+        String key = userId + ":" + date.getYear() + ":" + date.getMonthValue();
+
+        Cache cache = cacheManager.getCache("spending-summary");
+
+        if (cache != null){
+            cache.evict(key);
+        }
     }
 
     public PagedTransactionResponse getTransactions(Pageable pageable, FilterSearch transactionType,
@@ -233,10 +258,11 @@ public class TransactionService {
         return TransactionResponse.of(transaction);
     }
 
+    @Cacheable(cacheNames = "spending-summary", keyGenerator = "customKeyGenerator")
     public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
 
         return  transactionRepository.monthlySummary(userId, year, month).stream()
-                .map(MonthlySummaryResponse::of).toList();
+                .map(MonthlySummaryResponse::of).collect(Collectors.toList());
     }
 }

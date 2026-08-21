@@ -22,6 +22,8 @@ import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +32,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +44,7 @@ public class LoanScheduleService {
     private final AccountRepository accountRepository;
     private final ReferenceNumberGenerator referenceNumberGenerator;
 
+    @Cacheable(value = "loan-schedule", key = "#loanId")
     public List<LoanScheduleResponse> getLoanSchedules(UUID loanId, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
 
@@ -52,7 +56,7 @@ public class LoanScheduleService {
                 .findByLoanId(loanId)
                 .stream()
                 .map(LoanScheduleResponse::of)
-                .toList();
+                .collect(Collectors.toList());
     }
 
     public LoanScheduleResponse getSpecificLoanSchedule(UUID loanId, int paymentNumber, Jwt jwt){
@@ -67,6 +71,7 @@ public class LoanScheduleService {
         return LoanScheduleResponse.of(loanSchedule);
     }
 
+    @CacheEvict(value = "loan-schedule", key = "#loanId")
     @Auditable(action = "LOAN_PAYMENT", entityType = "LOAN_SCHEDULE")
     @Transactional
     public LoanPaymentResponse payInstallment(UUID loanId, int paymentNumber,
