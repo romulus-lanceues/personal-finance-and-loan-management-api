@@ -187,16 +187,6 @@ public class TransactionService {
         return List.of(TransactionResponse.of(debit), TransactionResponse.of(credit));
     }
 
-    private void evictSpendingSummaryCache(UUID userId, Instant transactedAt){
-        LocalDate date = transactedAt.atZone(ZoneOffset.UTC).toLocalDate();
-        String key = userId + ":" + date.getYear() + ":" + date.getMonthValue();
-
-        Cache cache = cacheManager.getCache("spending-summary");
-
-        if (cache != null){
-            cache.evict(key);
-        }
-    }
 
     public PagedTransactionResponse getTransactions(Pageable pageable, FilterSearch transactionType,
                                                      Jwt jwt){
@@ -264,5 +254,17 @@ public class TransactionService {
 
         return  transactionRepository.monthlySummary(userId, year, month).stream()
                 .map(MonthlySummaryResponse::of).collect(Collectors.toList());
+    }
+
+
+    private void evictSpendingSummaryCache(UUID userId, Instant transactedAt){
+        LocalDate date = transactedAt.atZone(ZoneOffset.UTC).toLocalDate();
+        String key = userId + ":" + date.getYear() + ":" + date.getMonthValue();
+
+        Cache cache = cacheManager.getCache("spending-summary");
+
+        if (cache != null){
+            cache.evict(key);
+        }
     }
 }
