@@ -61,6 +61,5 @@ public class AuthService {
         String jwtToken = jwtTokenService.generateJwtToken(authenticatedRequest);
 
         return new AuthenticationResponse(userId,"Success", jwtToken);
-
     }
 }
