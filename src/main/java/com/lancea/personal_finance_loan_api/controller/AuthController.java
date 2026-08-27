@@ -40,6 +40,8 @@ public class AuthController {
             @ApiResponse ( responseCode = "201", description = "Account was created",
                     content = @Content(schema = @Schema(implementation = AccountResponse.class))),
             @ApiResponse( responseCode = "400", description = "Request body failed validation",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse( responseCode = "409", description = "User email already exists",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 
     })
@@ -69,7 +71,9 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse ( responseCode = "200", description = "Account was created",
                     content = @Content(schema = @Schema(implementation = AccountResponse.class))),
-            @ApiResponse( responseCode = "400", description = "Request body failed validation or the authentication process failed",
+            @ApiResponse( responseCode = "400", description = "Request body failed validation",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse( responseCode = "401", description = "Credentials failed validation",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/login")
