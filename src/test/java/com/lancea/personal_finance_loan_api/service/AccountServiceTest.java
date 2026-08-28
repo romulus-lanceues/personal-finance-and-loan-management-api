@@ -52,7 +52,7 @@ public class AccountServiceTest {
 
     @Nested
     @DisplayName("account creation tests")
-    class createAccount {
+    class CreateAccount {
         AccountRequest request;
 
         @BeforeEach
@@ -117,7 +117,7 @@ public class AccountServiceTest {
         }
 
         @Test
-        void givenAccountIdAndRequest_whenCreateAccount_thenReturnUpdatedAccount(){
+        void givenAccountIdAndRequest_whenUpdateAccount_thenReturnUpdatedAccount(){
 
             Account outdatedAccount = Account.builder()
                     .accountName("Test Account")
@@ -137,7 +137,7 @@ public class AccountServiceTest {
         }
 
         @Test
-        void givenAccountIdAndRequest_whenCreateAccount_thenThrowResourceNotFound(){
+        void givenAccountIdAndRequest_whenUpdateAccount_thenThrowResourceNotFound(){
 
             given(accountRepository.findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
                     .willReturn(Optional.empty());

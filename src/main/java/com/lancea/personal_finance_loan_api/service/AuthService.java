@@ -1,6 +1,5 @@
 package com.lancea.personal_finance_loan_api.service;
 
-import com.lancea.personal_finance_loan_api.aspect.Auditable;
 import com.lancea.personal_finance_loan_api.dto.request.AuthenticationRequest;
 import com.lancea.personal_finance_loan_api.dto.response.AuthenticationResponse;
 import com.lancea.personal_finance_loan_api.entity.User;
@@ -37,7 +36,7 @@ public class AuthService {
                 .provider(AuthProvider.LOCAL)
                 .build();
 
-        userRepository.save(newUser);
+        User savedUser = userRepository.save(newUser);
 
         Authentication authRequest = UsernamePasswordAuthenticationToken
                 .unauthenticated(authenticationRequest.email(), authenticationRequest.password());
@@ -46,7 +45,7 @@ public class AuthService {
 
         String jwtToken = jwtTokenService.generateJwtToken(authenticatedRequest);
 
-        return new AuthenticationResponse(newUser.getId(), "Success", jwtToken);
+        return new AuthenticationResponse(savedUser.getId(), "Success", jwtToken);
     }
 
     public AuthenticationResponse loginUser(AuthenticationRequest authenticationRequest){
