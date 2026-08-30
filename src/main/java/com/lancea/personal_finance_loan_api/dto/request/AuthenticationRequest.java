@@ -2,6 +2,7 @@ package com.lancea.personal_finance_loan_api.dto.request;
 
 
 import com.lancea.personal_finance_loan_api.validation.annotation.PasswordMatches;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Null;
@@ -13,23 +14,27 @@ public record AuthenticationRequest(
         @NotBlank(message = "Name must not be blank", groups = ValidationGroups.Register.class)
         @Size(min = 3, message = "Full name must be 3 characters long", groups = ValidationGroups.Register.class)
         @Null(groups = ValidationGroups.Login.class)
+        @Schema(description = "The user's full name", example = "John Doe")
         String fullName,
 
         @NotBlank(message = "Email shouldn't be blank",
                 groups = {ValidationGroups.Register.class, ValidationGroups.Login.class})
         @Email(message = "Email address should be valid",
                 groups = {ValidationGroups.Register.class, ValidationGroups.Login.class})
+        @Schema(description = "The user's email address", example = "johndoe@samplemail.com")
         String email,
 
         @NotBlank(message = "Password shouldn't be blank",
                 groups = {ValidationGroups.Register.class, ValidationGroups.Login.class})
         @Size(min = 8, message = "Password should at least be 8 characters",
                 groups = {ValidationGroups.Register.class, ValidationGroups.Login.class})
+        @Schema(description = "The user's password")
         String password,
 
         @NotBlank(message = "Password shouldn't be blank", groups = ValidationGroups.Register.class)
         @Size(min = 8, message = "Password should at least be 8 characters", groups = ValidationGroups.Register.class)
         @Null(groups = ValidationGroups.Login.class)
+        @Schema(description = "Contains the user's password for validation purposes")
         String confirmPassword
 
 ) {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.enums.AccountType;
 import com.lancea.personal_finance_loan_api.enums.Currency;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -13,9 +14,25 @@ import java.util.Map;
 import java.util.UUID;
 
 public record AccountResponse  (
-        UUID id, String accountName, AccountType accountType,
+        @Schema(description = "Account ID", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+        UUID id,
+
+        @Schema(description = "Account name", example = "My retirement savings")
+        String accountName,
+
+        @Schema(description = "Account Type", example = "CASH")
+        AccountType accountType,
+
+        @Schema(description = "The balance of the account", example = "100000")
         BigDecimal balance, Currency currency,
-        boolean isActive, Instant createdAt,
+
+        @Schema(description = "The status of the account")
+        boolean isActive,
+
+        @Schema(description = "Instance date when the account was created")
+        Instant createdAt,
+
+        @Schema(description = "Instance date when the account was last updated ")
         Instant updatedAt ) implements AuditableInterface{
 
     public static AccountResponse of(Account account){

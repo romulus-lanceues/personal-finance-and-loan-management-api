@@ -96,7 +96,7 @@ public class AccountService {
                 .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         if(account.getBalance().compareTo(BigDecimal.ZERO) > 0) throw new BadRequestException
-                ("Cannot close an account with remaining balance of" + account.getBalance());
+                ("Cannot close an account with remaining balance of " + account.getBalance());
 
 
         account.setIsActive(false);
