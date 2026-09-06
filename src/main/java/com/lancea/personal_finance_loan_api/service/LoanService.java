@@ -185,10 +185,10 @@ public class LoanService {
         UUID userId = UserUtility.getUserId(jwt);
 
         Loan loanA = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanAId, userId)
-                .orElseThrow( () -> new ResourceNotFoundException("Loan with an ID of: " + loanAId + "not found"));
+                .orElseThrow( () -> new ResourceNotFoundException("Loan with an ID of: " + loanAId + " not found"));
 
         Loan loanB = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanBId, userId)
-                .orElseThrow( () -> new ResourceNotFoundException("Loan with an ID of: " + loanAId + "not found"));
+                .orElseThrow( () -> new ResourceNotFoundException("Loan with an ID of: " + loanBId+ " not found"));
 
 
        LoanDetails loanADetails = calculateLoanDetails(loanA);
