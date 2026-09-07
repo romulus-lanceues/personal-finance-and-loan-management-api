@@ -1,6 +1,7 @@
 package com.lancea.personal_finance_loan_api.service;
 
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
+import com.lancea.personal_finance_loan_api.dto.response.LoanComparisonResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
@@ -44,22 +45,22 @@ import static org.mockito.Mockito.*;
 public class LoanServiceTest {
 
     @Mock
-    UserRepository userRepository;
+    private UserRepository userRepository;
 
     @Mock
-    AccountRepository accountRepository;
+    private AccountRepository accountRepository;
 
     @Mock
-    LoanRepository loanRepository;
+    private LoanRepository loanRepository;
 
     @Mock
-    LoanScheduleRepository loanScheduleRepository;
+    private LoanScheduleRepository loanScheduleRepository;
 
     @InjectMocks
-    LoanService loanService;
+    private LoanService loanService;
 
     UUID userId;
-    Jwt jwt;
+    private Jwt jwt;
 
     @BeforeEach
     void setUp(){
@@ -71,9 +72,9 @@ public class LoanServiceTest {
     @Nested
     @DisplayName("loan creation tests")
     class LoanCreation {
-        UUID accountId;
-        User user;
-        Account account;
+        private UUID accountId;
+        private User user;
+        private Account account;
 
         @BeforeEach
         void setUp(){
@@ -260,7 +261,7 @@ public class LoanServiceTest {
 
         @Test
         @DisplayName("getLoanById does not leak a loan that belongs to a different user")
-        void whenAnotherUserLoanId_whenGetLoanById_thenThrowResourceNotFoundException() {
+        void givenAnotherUserLoanId_whenGetLoanById_thenThrowResourceNotFoundException() {
             UUID someoneElsesLoanId = UUID.randomUUID();
             try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
                 userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
@@ -276,5 +277,107 @@ public class LoanServiceTest {
             }
         }
 
+    }
+
+    @Nested
+    @DisplayName("compare loan tests")
+    class CompareLoanTest {
+        private UUID loanAId;
+        private UUID loanBId;
+
+        @BeforeEach
+        void SetUp() {
+            loanAId = UUID.randomUUID();
+            loanBId = UUID.randomUUID();
+        }
+
+        private Loan createLoan(UUID id, String loanName, BigDecimal principal,
+                                BigDecimal monthlyPayment, int termMonths, BigDecimal annualRate) {
+            return Loan.builder()
+                    .id(id)
+                    .loanName(loanName)
+                    .principal(principal)
+                    .monthlyPayment(monthlyPayment)
+                    .termMonths(termMonths)
+                    .annualRate(annualRate)
+                    .build();
+        }
+
+        @Test
+        @DisplayName("compareLoan names loanA as lower cost when its total payable amount is smaller")
+        void givenSmallerLoanACost_whenCompareLoan_thenReturnLoanComparisonResponse(){
+            Loan loanA = createLoan(loanAId, "Loan A", new BigDecimal("10000"), new BigDecimal("300"), 36, new BigDecimal("0.05"));
+            Loan loanB = createLoan(loanBId, "Loan B", new BigDecimal("15000"), new BigDecimal("500"), 36, new BigDecimal("0.06"));
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanAId, userId)).willReturn(Optional.of(loanA));
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanBId, userId)).willReturn(Optional.of(loanB));
+
+                LoanComparisonResponse response = loanService.compareLoan(loanAId, loanBId, jwt);
+
+                assertThat(response.interestDifference()).isEqualByComparingTo("2200.00");
+                assertThat(response.monthlyPaymentDifference()).isEqualByComparingTo("200.00");
+                assertThat(response.loanWithLowerCost()).isEqualTo("Loan A");
+            }
+
+        }
+
+        @Test
+        @DisplayName("compareLoan names loanB as lower cost when its total payable amount is smaller")
+        void givenSmallerLoanBCost_whenCompareLoan_thenReturnLoanComparisonResponse() {
+            Loan loanA = createLoan(loanAId, "Loan A", new BigDecimal("5000"), new BigDecimal("1000"), 12, new BigDecimal("0.08"));
+            Loan loanB = createLoan(loanBId, "Loan B", new BigDecimal("5000"), new BigDecimal("500"), 12, new BigDecimal("0.04"));
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanAId, userId)).willReturn(Optional.of(loanA));
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanBId, userId)).willReturn(Optional.of(loanB));
+
+                LoanComparisonResponse response = loanService.compareLoan(loanAId, loanBId, jwt);
+
+                assertThat(response.interestDifference()).isEqualByComparingTo("6000.00");
+                assertThat(response.monthlyPaymentDifference()).isEqualByComparingTo("500.00");
+                assertThat(response.loanWithLowerCost()).isEqualTo("Loan B");
+
+            }
+        }
+
+        @Test
+        @DisplayName("compareLoan reports equal cost when both loans have the same total payable amount")
+        void givenEqualLoanAmount_whenCompareLoan_thenReturnLoanComparisonResponse(){
+            Loan loanA = createLoan(loanAId, "Loan A", new BigDecimal("8000"), new BigDecimal("400"), 24, new BigDecimal("0.05"));
+            Loan loanB = createLoan(loanBId, "Loan B", new BigDecimal("8500"), new BigDecimal("480"), 20, new BigDecimal("0.05"));
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanAId, userId)).willReturn(Optional.of(loanA));
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanBId, userId)).willReturn(Optional.of(loanB));
+
+                LoanComparisonResponse response = loanService.compareLoan(loanAId, loanBId, jwt);
+
+                assertThat(response.interestDifference()).isEqualByComparingTo("500.00");
+                assertThat(response.monthlyPaymentDifference()).isEqualByComparingTo("80.00");
+                assertThat(response.loanWithLowerCost()).isEqualTo("Both loans have equal payable amount");
+            }
+
+        }
+
+        @Test
+        @DisplayName("compareLoan throws ResourceNotFoundException when loanB does not exist for the user")
+        void givenNonExistentLoanB_whenCompareLoan_thenThrowResourceNotFoundException(){
+            Loan loanA = createLoan(loanAId, "Loan A", new BigDecimal("10000"), new BigDecimal("300"), 36, new BigDecimal("0.05"));
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+                when(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanAId, userId)).thenReturn(Optional.of(loanA));
+                when(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanBId, userId)).thenReturn(Optional.empty());
+
+                assertThatThrownBy(() -> loanService.compareLoan(loanAId, loanBId, jwt)).hasMessageContaining(loanBId.toString());
+                assertThatThrownBy(() -> loanService.compareLoan(loanAId, loanBId, jwt))
+                        .isInstanceOf(ResourceNotFoundException.class);
+            }
+
+        }
     }
 }
