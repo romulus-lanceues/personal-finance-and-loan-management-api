@@ -3,11 +3,14 @@ package com.lancea.personal_finance_loan_api.service;
 import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanComparisonResponse;
 import com.lancea.personal_finance_loan_api.dto.response.LoanResponse;
+import com.lancea.personal_finance_loan_api.dto.response.LoanSimulationResponse;
 import com.lancea.personal_finance_loan_api.dto.response.PagedLoanResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
 import com.lancea.personal_finance_loan_api.entity.User;
+import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
+import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.LoanRepository;
@@ -32,6 +35,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -378,6 +382,306 @@ public class LoanServiceTest {
                         .isInstanceOf(ResourceNotFoundException.class);
             }
 
+        }
+    }
+
+    @Nested
+    @DisplayName("simulate payment tests")
+    class PaymentSimulation {
+
+        private UUID loanId;
+        private Loan loan;
+        private LocalDate disbursedAt;
+
+        @BeforeEach
+        void setUp() {
+            loanId = UUID.randomUUID();
+            disbursedAt = LocalDate.of(2026, 1, 1);
+            loan = Loan.builder()
+                    .id(loanId)
+                    .loanName("Personal Loan")
+                    .principal(new BigDecimal("6000.0000"))
+                    .annualRate(new BigDecimal("12.0"))
+                    .termMonths(6)
+                    .monthlyPayment(new BigDecimal("1000.0000"))
+                    .disbursedAt(disbursedAt)
+                    .maturityDate(disbursedAt.plusMonths(6))
+                    .build();
+        }
+
+        private LoanSchedule createSchedule(int paymentNumber, BigDecimal paymentAmount,
+                                            BigDecimal principalPortion, BigDecimal interestPortion,
+                                            BigDecimal remainingBalance, LoanScheduleStatus status) {
+            return LoanSchedule.builder()
+                    .id(UUID.randomUUID())
+                    .loan(loan)
+                    .paymentNumber(paymentNumber)
+                    .paymentAmount(paymentAmount)
+                    .principalPortion(principalPortion)
+                    .interestPortion(interestPortion)
+                    .remainingBalance(remainingBalance)
+                    .dueDate(disbursedAt.plusMonths(paymentNumber))
+                    .status(status)
+                    .build();
+        }
+
+        private List<LoanSchedule> buildOriginalSchedule() {
+            List<LoanSchedule> schedules = new ArrayList<>();
+            schedules.add(createSchedule(1, new BigDecimal("1000.0000"), new BigDecimal("940.0000"), new BigDecimal("60.0000"), new BigDecimal("5060.0000"), LoanScheduleStatus.PENDING));
+            schedules.add(createSchedule(2, new BigDecimal("1000.0000"), new BigDecimal("950.0000"), new BigDecimal("50.0000"), new BigDecimal("4110.0000"), LoanScheduleStatus.PENDING));
+            schedules.add(createSchedule(3, new BigDecimal("1000.0000"), new BigDecimal("960.0000"), new BigDecimal("40.0000"), new BigDecimal("3150.0000"), LoanScheduleStatus.PENDING));
+            schedules.add(createSchedule(4, new BigDecimal("1000.0000"), new BigDecimal("970.0000"), new BigDecimal("30.0000"), new BigDecimal("2180.0000"), LoanScheduleStatus.PENDING));
+            schedules.add(createSchedule(5, new BigDecimal("1000.0000"), new BigDecimal("980.0000"), new BigDecimal("20.0000"), new BigDecimal("1200.0000"), LoanScheduleStatus.PENDING));
+            schedules.add(createSchedule(6, new BigDecimal("1000.0000"), new BigDecimal("990.0000"), new BigDecimal("10.0000"), BigDecimal.ZERO, LoanScheduleStatus.PENDING));
+            return schedules;
+        }
+
+        @Test
+        @DisplayName("simulatePayment calculates shortened schedule and interest saved on partial extra payment")
+        void givenValidRequestWithPartialExtraPayment_whenSimulatePayment_thenReturnSimulatedScheduleAndSavings() {
+            int targetPaymentNumber = 1;
+            BigDecimal extraAmount = new BigDecimal("2000.0000");
+
+            List<LoanSchedule> originalSchedules = buildOriginalSchedule();
+            LoanSchedule targetRow = originalSchedules.getFirst(); // paymentNumber 1, remainingBalance = 5060.0000
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+                given(loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, targetPaymentNumber))
+                        .willReturn(Optional.of(targetRow));
+                given(loanScheduleRepository.findByLoanId(loanId))
+                        .willReturn(originalSchedules);
+
+                LoanSimulationResponse response = loanService.simulatePayment(loanId, targetPaymentNumber, extraAmount, jwt);
+
+                assertThat(response).isNotNull();
+                // Original remaining balance was 5060 - 2000 extra = 3060.
+                // At 1% monthly rate and 1000 monthly payment:
+                // Month 2: interest = 30.60, principal = 969.40, remaining = 2090.60
+                // Month 3: interest = 20.906, principal = 979.094, remaining = 1111.5060
+                // Month 4: interest = 11.1151, principal = 988.8849, remaining = 122.6211
+                // Month 5: interest = 1.2262, principal = 122.6211 (final payoff), actualPayment = 123.8473, remaining = 0
+                // Simulated schedule has 4 rows (payments 2, 3, 4, 5)
+                assertThat(response.simulatedSchedule()).hasSize(4);
+                assertThat(response.monthsSaved()).isEqualTo(1); // 5 original remaining - 4 simulated = 1 month saved
+                assertThat(response.interestSaved()).isPositive();
+
+                // Verify first simulated row
+                assertThat(response.simulatedSchedule().getFirst().paymentNumber()).isEqualTo(2);
+                assertThat(response.simulatedSchedule().getFirst().dueDate()).isEqualTo(disbursedAt.plusMonths(2));
+                assertThat(response.simulatedSchedule().getFirst().loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PENDING);
+
+                // Verify last simulated row pays off the remaining balance
+                assertThat(response.simulatedSchedule().getLast().paymentNumber()).isEqualTo(5);
+                assertThat(response.simulatedSchedule().getLast().remainingBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment returns full payoff response when extra amount covers exact remaining balance")
+        void givenExtraAmountEqualsRemainingBalance_whenSimulatePayment_thenReturnFullPayoffResponse() {
+            int targetPaymentNumber = 1;
+            List<LoanSchedule> originalSchedules = buildOriginalSchedule();
+            LoanSchedule targetRow = originalSchedules.getFirst(); // remainingBalance = 5060.0000
+            BigDecimal extraAmount = new BigDecimal("5060.0000");
+
+            // Original remaining interest for payments 2..6: 50 + 40 + 30 + 20 + 10 = 150.0000
+            BigDecimal expectedInterestSaved = new BigDecimal("150.0000");
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+                given(loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, targetPaymentNumber))
+                        .willReturn(Optional.of(targetRow));
+                given(loanScheduleRepository.findByLoanId(loanId))
+                        .willReturn(originalSchedules);
+
+                LoanSimulationResponse response = loanService.simulatePayment(loanId, targetPaymentNumber, extraAmount, jwt);
+
+                assertThat(response).isNotNull();
+                assertThat(response.simulatedSchedule()).isEmpty();
+                assertThat(response.interestSaved()).isEqualByComparingTo(expectedInterestSaved);
+                assertThat(response.monthsSaved()).isEqualTo(5);
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment returns full payoff response when extra amount exceeds remaining balance")
+        void givenExtraAmountExceedsRemainingBalance_whenSimulatePayment_thenReturnFullPayoffResponse() {
+            int targetPaymentNumber = 1;
+            List<LoanSchedule> originalSchedules = buildOriginalSchedule();
+            LoanSchedule targetRow = originalSchedules.getFirst();
+            BigDecimal extraAmount = new BigDecimal("6000.0000"); // Greater than 5060.0000
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+                given(loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, targetPaymentNumber))
+                        .willReturn(Optional.of(targetRow));
+                given(loanScheduleRepository.findByLoanId(loanId))
+                        .willReturn(originalSchedules);
+
+                LoanSimulationResponse response = loanService.simulatePayment(loanId, targetPaymentNumber, extraAmount, jwt);
+
+                assertThat(response).isNotNull();
+                assertThat(response.simulatedSchedule()).isEmpty();
+                assertThat(response.interestSaved()).isEqualByComparingTo("150.0000");
+                assertThat(response.monthsSaved()).isEqualTo(5);
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment throws RuntimeException when loan does not exist")
+        void givenNonExistentLoan_whenSimulatePayment_thenThrowRuntimeException() {
+            int paymentNumber = 1;
+            BigDecimal extraAmount = new BigDecimal("500.0000");
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.empty());
+
+                assertThatThrownBy(() -> loanService.simulatePayment(loanId, paymentNumber, extraAmount, jwt))
+                        .isInstanceOf(RuntimeException.class)
+                        .hasMessage("Loan not found");
+
+                verifyNoInteractions(loanScheduleRepository);
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment throws BadRequestException when extra amount is zero")
+        void givenZeroExtraAmount_whenSimulatePayment_thenThrowBadRequestException() {
+            int paymentNumber = 1;
+            BigDecimal extraAmount = BigDecimal.ZERO;
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+
+                assertThatThrownBy(() -> loanService.simulatePayment(loanId, paymentNumber, extraAmount, jwt))
+                        .isInstanceOf(BadRequestException.class)
+                        .hasMessage("Extra amount must be greater than zero");
+
+                verifyNoInteractions(loanScheduleRepository);
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment throws BadRequestException when extra amount is negative")
+        void givenNegativeExtraAmount_whenSimulatePayment_thenThrowBadRequestException() {
+            int paymentNumber = 1;
+            BigDecimal extraAmount = new BigDecimal("-100.0000");
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+
+                assertThatThrownBy(() -> loanService.simulatePayment(loanId, paymentNumber, extraAmount, jwt))
+                        .isInstanceOf(BadRequestException.class)
+                        .hasMessage("Extra amount must be greater than zero");
+
+                verifyNoInteractions(loanScheduleRepository);
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment throws ResourceNotFoundException when payment number is not found in schedule")
+        void givenNonExistentPaymentNumber_whenSimulatePayment_thenThrowResourceNotFoundException() {
+            int paymentNumber = 99;
+            BigDecimal extraAmount = new BigDecimal("500.0000");
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+                given(loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber))
+                        .willReturn(Optional.empty());
+
+                assertThatThrownBy(() -> loanService.simulatePayment(loanId, paymentNumber, extraAmount, jwt))
+                        .isInstanceOf(ResourceNotFoundException.class)
+                        .hasMessage("Payment number not found in schedule");
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment throws BadRequestException when target installment is already paid")
+        void givenAlreadyPaidInstallment_whenSimulatePayment_thenThrowBadRequestException() {
+            int paymentNumber = 1;
+            BigDecimal extraAmount = new BigDecimal("500.0000");
+            LoanSchedule paidRow = createSchedule(1, new BigDecimal("1000.0000"), new BigDecimal("940.0000"),
+                    new BigDecimal("60.0000"), new BigDecimal("5060.0000"), LoanScheduleStatus.PAID);
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(loan));
+                given(loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber))
+                        .willReturn(Optional.of(paidRow));
+
+                assertThatThrownBy(() -> loanService.simulatePayment(loanId, paymentNumber, extraAmount, jwt))
+                        .isInstanceOf(BadRequestException.class)
+                        .hasMessage("Cannot simulate against an installment that is already paid");
+            }
+        }
+
+        @Test
+        @DisplayName("simulatePayment handles zero annual rate loan correctly")
+        void givenZeroAnnualRateLoan_whenSimulatePayment_thenSimulateWithoutInterest() {
+            int targetPaymentNumber = 1;
+            BigDecimal extraAmount = new BigDecimal("1000.0000");
+
+            Loan zeroInterestLoan = Loan.builder()
+                    .id(loanId)
+                    .loanName("Zero Interest Loan")
+                    .principal(new BigDecimal("3000.0000"))
+                    .annualRate(BigDecimal.ZERO)
+                    .termMonths(3)
+                    .monthlyPayment(new BigDecimal("1000.0000"))
+                    .disbursedAt(disbursedAt)
+                    .maturityDate(disbursedAt.plusMonths(3))
+                    .build();
+
+            List<LoanSchedule> schedules = List.of(
+                    createSchedule(1, new BigDecimal("1000.0000"), new BigDecimal("1000.0000"), BigDecimal.ZERO, new BigDecimal("2000.0000"), LoanScheduleStatus.PENDING),
+                    createSchedule(2, new BigDecimal("1000.0000"), new BigDecimal("1000.0000"), BigDecimal.ZERO, new BigDecimal("1000.0000"), LoanScheduleStatus.PENDING),
+                    createSchedule(3, new BigDecimal("1000.0000"), new BigDecimal("1000.0000"), BigDecimal.ZERO, BigDecimal.ZERO, LoanScheduleStatus.PENDING)
+            );
+
+            try (MockedStatic<UserUtility> userUtility = mockStatic(UserUtility.class)) {
+                userUtility.when(() -> UserUtility.getUserId(jwt)).thenReturn(userId);
+
+                given(loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId))
+                        .willReturn(Optional.of(zeroInterestLoan));
+                given(loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, targetPaymentNumber))
+                        .willReturn(Optional.of(schedules.getFirst()));
+                given(loanScheduleRepository.findByLoanId(loanId))
+                        .willReturn(schedules);
+
+                LoanSimulationResponse response = loanService.simulatePayment(loanId, targetPaymentNumber, extraAmount, jwt);
+
+                assertThat(response).isNotNull();
+                // 2000 - 1000 extra = 1000 remaining. 1 payment of 1000 pays off remaining balance.
+                assertThat(response.simulatedSchedule()).hasSize(1);
+                assertThat(response.monthsSaved()).isEqualTo(1); // 2 original remaining - 1 simulated = 1 month saved
+                assertThat(response.interestSaved()).isEqualByComparingTo(BigDecimal.ZERO);
+                assertThat(response.simulatedSchedule().getFirst().paymentAmount()).isEqualByComparingTo("1000.0000");
+                assertThat(response.simulatedSchedule().getFirst().remainingBalance()).isEqualByComparingTo(BigDecimal.ZERO);
+            }
         }
     }
 }
