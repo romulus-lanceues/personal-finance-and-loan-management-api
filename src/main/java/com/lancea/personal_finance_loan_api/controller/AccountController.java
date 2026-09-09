@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +36,8 @@ public class AccountController {
 
     @Operation(
             summary = "Create an account",
-            description = "Returns an account response with the specified details regarding the created account"
+            description = "Returns an account response with the specified details regarding the created account",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -49,9 +51,11 @@ public class AccountController {
     })
 
     @PostMapping
-    public ResponseEntity<AccountResponse> createAccount( @AuthenticationPrincipal Jwt jwt,
+    public ResponseEntity<AccountResponse> createAccount(
             @Parameter(description = "The request that contains the account info")
-            @Valid @RequestBody AccountRequest accountRequest){
+            @Valid @RequestBody AccountRequest accountRequest,
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt
+    ){
 
         AccountResponse response = accountService.createAccount(jwt, accountRequest);
 
@@ -66,7 +70,8 @@ public class AccountController {
 
     @Operation(
             summary = "Get all user accounts",
-            description = "Returns a list of active accounts of the user"
+            description = "Returns a list of active accounts of the user",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -77,13 +82,15 @@ public class AccountController {
     })
 
     @GetMapping
-    public ResponseEntity<List<AccountResponse>> getAllAccounts(@AuthenticationPrincipal Jwt jwt){
+    public ResponseEntity<List<AccountResponse>> getAllAccounts(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(accountService.getAllAccounts(jwt));
     }
 
     @Operation(
             summary = "Get the account using its ID",
-            description = "Returns the account information using its ID"
+            description = "Returns the account information using its ID",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -99,14 +106,15 @@ public class AccountController {
     public ResponseEntity<AccountResponse> getAccountById(
             @Parameter(description = "ID of the account that needs to be retrieved", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @PathVariable UUID accountId,
-            @AuthenticationPrincipal Jwt jwt){
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt){
         return ResponseEntity.ok(accountService.getAccountById(accountId, jwt ));
 
     }
 
     @Operation(
             summary = "Update a selected account's information",
-            description = "Updates the account name and type based on the value the user provided"
+            description = "Updates the account name and type based on the value the user provided",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -126,7 +134,7 @@ public class AccountController {
             @PathVariable UUID accountId,
             @Parameter(description = "Contains the updated information regarding the account")
             @Valid @RequestBody AccountUpdateRequest updateRequest,
-            @AuthenticationPrincipal Jwt jwt){
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt){
 
         return ResponseEntity.ok(accountService.updateAccount(accountId, updateRequest, jwt));
 
@@ -134,7 +142,8 @@ public class AccountController {
 
     @Operation(
             summary = "Close an account",
-            description = "Closes the provided account as long as it doesn't have a remaining balance"
+            description = "Closes the provided account as long as it doesn't have a remaining balance",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -150,14 +159,15 @@ public class AccountController {
     public ResponseEntity<AccountResponse> closeAccount(
             @Parameter(description = "ID of the account that needs to be updated", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @PathVariable UUID accountId,
-            @AuthenticationPrincipal Jwt jwt)  {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt)  {
 
         return ResponseEntity.ok(accountService.closeAccount(accountId, jwt));
     }
 
     @Operation(
             summary = "Delete an account",
-            description = "Mark the selected account as deleted"
+            description = "Mark the selected account as deleted",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -172,7 +182,7 @@ public class AccountController {
     public ResponseEntity<Void> deleteAccount(
             @Parameter(description = "ID of the account that needs to be updated", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @PathVariable UUID accountId,
-            @AuthenticationPrincipal Jwt jwt) {
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
 
         accountService.deleteAccount(accountId, jwt);
         return ResponseEntity.noContent().build();

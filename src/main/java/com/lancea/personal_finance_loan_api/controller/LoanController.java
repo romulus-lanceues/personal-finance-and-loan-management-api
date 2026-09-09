@@ -5,11 +5,11 @@ import com.lancea.personal_finance_loan_api.dto.response.*;
 import com.lancea.personal_finance_loan_api.service.LoanService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +37,8 @@ public class LoanController {
 
     @Operation(
             summary = "Creates a Loan",
-            description = "Creates a loan for the user and its amortization schedules "
+            description = "Creates a loan for the user and its amortization schedules ",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -82,7 +83,8 @@ public class LoanController {
 
     @Operation(
             summary = "Get user loans",
-            description = "Retrieves a paginated list of existing loans for the authenticated user. "
+            description = "Retrieves a paginated list of existing loans for the authenticated user.",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -113,7 +115,8 @@ public class LoanController {
 
     @Operation(
             summary = "Get loan by ID",
-            description = "Retrieves detailed information for a specific loan belonging to the user."
+            description = "Retrieves detailed information for a specific loan belonging to the user.",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -150,7 +153,8 @@ public class LoanController {
 
     @Operation(
             summary = "Compare two existing loans",
-            description = "Compares terms, interest, and monthly obligations between two existing loans."
+            description = "Compares terms, interest, and monthly obligations between two existing loans.",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
@@ -189,7 +193,8 @@ public class LoanController {
 
     @Operation(
             summary = "Simulate extra payment on loan",
-            description = "Simulates remaining amortization schedule and computes interest savings if an extra payment is applied."
+            description = "Simulates remaining amortization schedule and computes interest savings if an extra payment is applied.",
+            security = @SecurityRequirement(name = "bearerAuth")
     )
 
     @ApiResponses({
