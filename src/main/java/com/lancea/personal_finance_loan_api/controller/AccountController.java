@@ -66,7 +66,7 @@ public class AccountController {
 
     @Operation(
             summary = "Get all user accounts",
-            description = "Returns a a list of active accounts of the user"
+            description = "Returns a list of active accounts of the user"
     )
 
     @ApiResponses({

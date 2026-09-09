@@ -243,7 +243,7 @@ public class LoanService {
         UUID userId = UserUtility.getUserId(jwt);
 
         Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId)
-                .orElseThrow( () -> new RuntimeException("Loan not found"));
+                .orElseThrow( () -> new ResourceNotFoundException("Loan not found"));
 
         validateExtraAmount(extraAmount);
 
@@ -311,7 +311,7 @@ public class LoanService {
 
         }
 
-        return buildSimulationResponse(loan, paymentNumber, extraAmount, simulatedSchedule);
+        return buildSimulationResponse(loan, paymentNumber, simulatedSchedule);
 }
 
     private void validateExtraAmount(BigDecimal extraAmount){
@@ -344,7 +344,7 @@ public class LoanService {
     }
 
     private LoanSimulationResponse buildSimulationResponse(Loan loan, int startPaymentNumber,
-                                                           BigDecimal extraAmount, List<LoanSchedule>simulatedSchedule){
+                                                           List<LoanSchedule>simulatedSchedule){
 
         List<LoanSchedule> remainingActualLoanSchedule = loanScheduleRepository.findByLoanId(loan.getId())
                 .stream()
