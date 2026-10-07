@@ -22,7 +22,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -84,7 +83,37 @@ public class AuthControllerTest {
         void givenBlankAccountName_whenRegisterUser_thenThrowBadRequest() throws Exception {
 
             String invalidRequest = """
-                {"fullName" : "", "email": "johndoe@testmail.com", "password": "testpassword101". "confirmPassword": "testpassword101"}
+                {"fullName" : "", "email": "johndoe@testmail.com", "password": "testpassword101", "confirmPassword": "testpassword101"}
+                """;
+
+            mockMvc.perform(post("/api/v1/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(invalidRequest))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(authService);
+        }
+
+        @Test
+        void givenInvalidEmail_whenRegisterUser_thenThrowBadRequest() throws Exception {
+
+            String invalidRequest = """
+                {"fullName" : "John Doe", "email": "invalid-email", "password": "testpassword101", "confirmPassword": "testpassword101"}
+                """;
+
+            mockMvc.perform(post("/api/v1/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(invalidRequest))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(authService);
+        }
+
+        @Test
+        void givenPasswordMismatch_whenRegisterUser_thenThrowBadRequest() throws Exception {
+
+            String invalidRequest = """
+                {"fullName" : "John Doe", "email": "johndoe@testmail.com", "password": "testpassword101", "confirmPassword": "mismatchedpassword101"}
                 """;
 
             mockMvc.perform(post("/api/v1/auth/register")
@@ -126,10 +155,25 @@ public class AuthControllerTest {
         }
 
         @Test
-        void givenInvalidAuthenticationRequest_whenLoginUser_thenReturnAuthenticationResponse() throws Exception{
+        void givenBlankEmail_whenLoginUser_thenThrowBadRequest() throws Exception{
 
             String invalidLoginAuthenticationRequest = """
                 {"email" : "", "password" : "testpassword101"}
+                """;
+
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(invalidLoginAuthenticationRequest))
+                    .andExpect(status().isBadRequest());
+
+            verifyNoInteractions(authService);
+        }
+
+        @Test
+        void givenFullNameInLogin_whenLoginUser_thenThrowBadRequest() throws Exception{
+
+            String invalidLoginAuthenticationRequest = """
+                {"fullName": "John Doe", "email" : "johndoe@testmail.com", "password" : "testpassword101"}
                 """;
 
             mockMvc.perform(post("/api/v1/auth/login")
