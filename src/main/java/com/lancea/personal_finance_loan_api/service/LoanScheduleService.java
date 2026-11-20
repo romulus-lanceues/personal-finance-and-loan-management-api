@@ -43,15 +43,20 @@ public class LoanScheduleService {
     private final TransactionRepository transactionRepository;
     private final AccountRepository accountRepository;
     private final ReferenceNumberGenerator referenceNumberGenerator;
-    private final LoanScheduleCache loanScheduleCache;
 
+    @Cacheable(value = "loan-schedule", key = "#loanId")
     public List<LoanScheduleResponse> getLoanSchedules(UUID loanId, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
 
         if(!loanRepository.existsByIdAndUserIdAndIsDeletedFalse(loanId, userId))
             throw new ResourceNotFoundException("Loan doesn't exist");
 
-        return loanScheduleCache.getSchedules(loanId);
+        //Retrieve the LoanSchedules and convert them into LoanScheduleResponses
+        return loanScheduleRepository
+                .findByLoanId(loanId)
+                .stream()
+                .map(LoanScheduleResponse::of)
+                .collect(Collectors.toList());
     }
 
     public LoanScheduleResponse getSpecificLoanSchedule(UUID loanId, int paymentNumber, Jwt jwt){
