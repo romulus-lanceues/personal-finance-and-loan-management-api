@@ -14,8 +14,6 @@ import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
 
-    Optional<Transaction> findByIdempotencyKey(String idempotencyKey);
-
     Page<Transaction> findByAccountUserId(UUID userId, Pageable pageable);
     Page<Transaction> findByAccountUserIdAndType(UUID userId, TransactionType type, Pageable pageable);
 
@@ -39,4 +37,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             ORDER BY totalAmount DESC
     """)
     List<MonthlySummaryProjection> monthlySummary(UUID userId, int year, int month);
+
+    Optional<Transaction> findByIdempotencyKeyAndAccountIdAndAccountUserId(String idempotencyKey, UUID accountId, UUID userId);
+
+    Optional<Transaction> findByTransferReferenceAndAccountIdAndAccountUserIdAndIdempotencyKeyIsNull(
+            String transferReference, UUID accountId, UUID userId);
+
 }

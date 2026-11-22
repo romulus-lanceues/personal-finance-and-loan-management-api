@@ -44,6 +44,10 @@ public record LoanResponse (
 ) implements AuditableInterface {
 
     public static LoanResponse of(Loan loan){
+        return of(loan, loan.getStatus());
+    }
+
+    public static LoanResponse of(Loan loan, LoanStatus status) {
         return new LoanResponse(
                 loan.getId(),
                 loan.getLoanName(),
@@ -52,7 +56,7 @@ public record LoanResponse (
                 loan.getAnnualRate(),
                 loan.getMonthlyPayment(),
                 loan.getTermMonths(),
-                loan.getStatus(),
+                status,
                 loan.getDisbursedAt(),
                 loan.getMaturityDate());
     }

@@ -3,6 +3,7 @@ package com.lancea.personal_finance_loan_api.dto.request;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.validator.constraints.CodePointLength;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -21,6 +22,7 @@ public record WithdrawRequest(
         String description,
 
         @NotBlank(message = "Idempotency key is required")
+        @CodePointLength(max = 255, message = "Idempotency key must be at most 255 characters")
         String idempotencyKey
 ) {
 }

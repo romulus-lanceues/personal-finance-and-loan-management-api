@@ -1,6 +1,7 @@
 package com.lancea.personal_finance_loan_api.entity;
 
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
+import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.SQLRestriction;
@@ -36,6 +37,14 @@ public class Transaction {
     @JoinColumn(name = "loan_id")
     private Loan loan;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "loan_schedule_id", updatable = false)
+    private LoanSchedule loanSchedule;
+
+    @Enumerated(EnumType.STRING)
+    @Column(updatable = false)
+    private LoanStatus loanStatusAfterPayment;
+
     @Column(nullable = false, unique = true)
     private String referenceNumber;
 
@@ -49,7 +58,7 @@ public class Transaction {
     @Column
     private String category;
 
-    @Column(unique = true)
+    @Column
     private String idempotencyKey;
 
     @Column
