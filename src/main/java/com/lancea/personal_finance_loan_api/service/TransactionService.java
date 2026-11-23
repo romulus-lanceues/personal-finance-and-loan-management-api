@@ -9,6 +9,7 @@ import com.lancea.personal_finance_loan_api.dto.response.PagedTransactionRespons
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.FilterSearch;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
@@ -80,6 +81,7 @@ public class TransactionService {
             throw new DuplicateTransactionException("Idempotency key already used for a different request.");
         }
 
+        Currency.requireSupported(account.getCurrency());
         if(!account.getIsActive()) throw new BadRequestException("Cannot deposit to a closed account");
 
         account.setBalance(validateBalance(account.getBalance().add(depositAmount)));
@@ -121,6 +123,7 @@ public class TransactionService {
             throw new DuplicateTransactionException("Idempotency key already used for a different request.");
         }
 
+        Currency.requireSupported(account.getCurrency());
         if(!account.getIsActive()) throw new BadRequestException("Cannot withdraw from a closed account");
 
         if(account.getBalance().compareTo(amount) < 0){
@@ -182,6 +185,10 @@ public class TransactionService {
             throw new DuplicateTransactionException("Idempotency key already used for a different request.");
         }
 
+        if (fromAccount.getCurrency() != toAccount.getCurrency()) {
+            throw new BadRequestException("Transfer accounts must use the same currency");
+        }
+        Currency.requireSupported(fromAccount.getCurrency());
         if(!fromAccount.getIsActive()) throw new BadRequestException("Source account is closed");
         if(!toAccount.getIsActive()) throw new BadRequestException("Destination account is closed");
 

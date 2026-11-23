@@ -7,6 +7,7 @@ import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
 import com.lancea.personal_finance_loan_api.entity.User;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
@@ -52,7 +53,7 @@ public class LoanService {
 
         Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(request.accountId(), userId)
                 .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist"));
-
+        Currency.requireSupported(account.getCurrency());
 
         BigDecimal monthlyRate = computeMonthlyRate(request.annualRate());
         BigDecimal monthlyPayment = determineMonthlyPayment(request.annualRate(), request.principal(),

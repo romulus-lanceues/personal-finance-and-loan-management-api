@@ -6,6 +6,7 @@ import com.lancea.personal_finance_loan_api.dto.request.AccountUpdateRequest;
 import com.lancea.personal_finance_loan_api.dto.response.AccountResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.User;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
@@ -32,6 +33,7 @@ public class AccountService {
     @Auditable(action = "ACCOUNT_CREATED", entityType = "ACCOUNT")
     public AccountResponse createAccount(Jwt jwt, AccountRequest accountRequest){
         UUID userId = UserUtility.getUserId(jwt);
+        Currency.requireSupported(accountRequest.currency());
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found" + userId));

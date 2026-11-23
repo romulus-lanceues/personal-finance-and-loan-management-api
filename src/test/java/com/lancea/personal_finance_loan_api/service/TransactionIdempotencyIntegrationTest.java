@@ -1,11 +1,15 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.dto.request.AccountRequest;
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
 import com.lancea.personal_finance_loan_api.dto.request.LoanPaymentRequest;
+import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanPaymentResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
+import com.lancea.personal_finance_loan_api.enums.AccountType;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
 import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
@@ -17,6 +21,7 @@ import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +49,7 @@ import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -69,8 +75,8 @@ class TransactionIdempotencyIntegrationTest {
     @EnableJpaAuditing
     @EnableJpaRepositories(basePackageClasses = AccountRepository.class)
     @EntityScan(basePackageClasses = Account.class)
-    @Import({TransactionService.class, LoanScheduleService.class, LoanScheduleCache.class,
-            ReferenceNumberGenerator.class, GlobalExceptionHandler.class})
+    @Import({AccountService.class, TransactionService.class, LoanService.class, LoanScheduleService.class,
+            LoanScheduleCache.class, ReferenceNumberGenerator.class, GlobalExceptionHandler.class})
     static class Config {
         @Bean
         CacheManager cacheManager() {
@@ -108,7 +114,11 @@ class TransactionIdempotencyIntegrationTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
     @Autowired
+    private AccountService accounts;
+    @Autowired
     private TransactionService transactions;
+    @Autowired
+    private LoanService loans;
     @Autowired
     private LoanScheduleService installments;
     @Autowired
@@ -407,6 +417,72 @@ class TransactionIdempotencyIntegrationTest {
     }
 
     @Test
+    void replaysAnExistingDepositAfterItsCurrencyIsDisabled() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var request = new DepositRequest(account, new BigDecimal("10.00"), "Salary", null, "legacy-deposit");
+        var original = transactions.deposit(request, jwt);
+        jdbc.update("update accounts set currency = 'JPY' where id = ?", account);
+
+        assertThat(transactions.deposit(request, jwt)).isEqualTo(original);
+        assertThat(balance(account)).isEqualByComparingTo("110.00");
+        assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Currency.class, names = {"USD", "JPY"})
+    void rejectsCrossCurrencyTransfersBeforeWriting(Currency currency) {
+        UUID owner = createUser();
+        UUID phpAccount = createAccount(owner);
+        UUID legacyAccount = createAccount(owner, currency);
+        Jwt jwt = jwt(owner);
+        var outbound = new TransferRequest(phpAccount, legacyAccount, BigDecimal.TEN, null, "outbound");
+        var inbound = new TransferRequest(legacyAccount, phpAccount, BigDecimal.TEN, null, "inbound");
+
+        assertThatThrownBy(() -> transactions.transfer(outbound, jwt))
+                .isInstanceOf(BadRequestException.class).hasMessage("Transfer accounts must use the same currency");
+        assertThatThrownBy(() -> transactions.transfer(inbound, jwt))
+                .isInstanceOf(BadRequestException.class).hasMessage("Transfer accounts must use the same currency");
+
+        assertThat(balance(phpAccount)).isEqualByComparingTo("100.00");
+        assertThat(balance(legacyAccount)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(phpAccount)).isZero();
+        assertThat(transactionCount(legacyAccount)).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Currency.class, names = {"USD", "JPY"})
+    void keepsLegacyAccountsReadableAndRejectsNewNonPhpActivity(Currency currency) {
+        UUID owner = createUser();
+        UUID account = createAccount(owner, currency);
+        UUID destination = createAccount(owner, currency);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+
+        assertThat(accounts.getAccountById(account, jwt).currency()).isEqualTo(currency);
+        assertThatThrownBy(() -> accounts.createAccount(jwt, new AccountRequest("New account", AccountType.CHECKING, currency)))
+                .isInstanceOf(BadRequestException.class).hasMessage("Only PHP is currently supported");
+        assertThrows(BadRequestException.class, () -> transactions.deposit(
+                new DepositRequest(account, BigDecimal.TEN, "Salary", null, "deposit"), jwt));
+        assertThrows(BadRequestException.class, () -> transactions.withdraw(
+                new WithdrawRequest(account, BigDecimal.TEN, "Goods", null, "withdrawal"), jwt));
+        assertThrows(BadRequestException.class, () -> transactions.transfer(
+                new TransferRequest(account, destination, BigDecimal.TEN, null, "transfer"), jwt));
+        assertThrows(BadRequestException.class, () -> loans.createLoan(
+                new LoanRequest(account, "New loan", BigDecimal.TEN, BigDecimal.ZERO, 2, LocalDate.of(2026, 11, 23)), jwt));
+        assertThrows(BadRequestException.class, () -> installments.payInstallment(loan, 1, new LoanPaymentRequest("payment"), jwt));
+
+        assertThat(accounts.getAllAccounts(jwt)).hasSize(2);
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(balance(destination)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+        assertThat(transactionCount(destination)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from loans where user_id = ?", Long.class, owner)).isEqualTo(1L);
+        assertThat(installments.getSpecificLoanSchedule(loan, 1, jwt).loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PENDING);
+    }
+
+    @Test
     void requestValidationRejectsKeysThatExceedTheDatabaseLimit() {
         UUID account = UUID.randomUUID();
         UUID destination = UUID.randomUUID();
@@ -501,12 +577,16 @@ class TransactionIdempotencyIntegrationTest {
     }
 
     private UUID createAccount(UUID owner) {
+        return createAccount(owner, Currency.PHP);
+    }
+
+    private UUID createAccount(UUID owner, Currency currency) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 insert into accounts (id, user_id, account_name, account_type, currency, balance,
                                       is_active, is_deleted, created_at, updated_at)
-                values (?, ?, 'Test Account', 'CHECKING', 'PHP', 100, true, false, now(), now())
-                """, id, owner);
+                values (?, ?, 'Test Account', 'CHECKING', ?, 100, true, false, now(), now())
+                """, id, owner, currency.name());
         return id;
     }
 

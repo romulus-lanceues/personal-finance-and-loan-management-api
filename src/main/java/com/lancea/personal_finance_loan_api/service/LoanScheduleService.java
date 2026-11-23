@@ -10,6 +10,7 @@ import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
 import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
@@ -111,6 +112,7 @@ public class LoanScheduleService {
             return generateLoanPaymentResponse(loan, paidSchedule, payment);
         }
 
+        Currency.requireSupported(account.getCurrency());
         LoanSchedule loanSchedule = loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment schedule not found"));
 
