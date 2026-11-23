@@ -1,6 +1,6 @@
 package com.lancea.personal_finance_loan_api.dto.request;
 
-import jakarta.validation.constraints.DecimalMin;
+import com.lancea.personal_finance_loan_api.validation.annotation.TransactionAmount;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.hibernate.validator.constraints.CodePointLength;
@@ -17,7 +17,7 @@ public record TransferRequest(
         UUID toAccountId,
 
         @NotNull(message = "Amount is required")
-        @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
+        @TransactionAmount
         BigDecimal amount,
 
         String description,

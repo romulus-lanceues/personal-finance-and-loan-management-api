@@ -17,6 +17,7 @@ import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
+import com.lancea.personal_finance_loan_api.validation.validator.TransactionAmountValidator;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
@@ -310,17 +311,12 @@ public class TransactionService {
 
 
     private BigDecimal validateAmount(BigDecimal requestedAmount) {
-        BigDecimal amount;
-        try {
-            amount = requestedAmount.setScale(2, RoundingMode.UNNECESSARY);
-        } catch (ArithmeticException ex) {
-            throw new BadRequestException("Amount must fit within two decimal places.");
+        String error = TransactionAmountValidator.validationError(requestedAmount);
+        if (error != null) {
+            throw new BadRequestException(error);
         }
 
-        if (amount.signum() <= 0 || amount.precision() - amount.scale() > 15) {
-            throw new BadRequestException("Amount must be positive and fit numeric(19,4).");
-        }
-        return amount;
+        return requestedAmount.setScale(TransactionAmountValidator.AMOUNT_SCALE, RoundingMode.UNNECESSARY);
     }
 
     private BigDecimal validateBalance(BigDecimal balance) {

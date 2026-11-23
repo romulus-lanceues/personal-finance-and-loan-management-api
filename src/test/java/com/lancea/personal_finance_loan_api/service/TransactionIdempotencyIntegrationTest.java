@@ -16,6 +16,9 @@ import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
@@ -356,6 +359,51 @@ class TransactionIdempotencyIntegrationTest {
                 assertThat(summary.transactionCount()).isEqualTo(1L);
             });
         });
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"0", "-0.01", "0.001", "12.345", "1000000000000000.00", "1E+2147483647"})
+    void rejectsInvalidAmountsWithoutWritingBalancesOrTransactions(String value) {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID destination = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = value == null ? null : new BigDecimal(value);
+        var deposit = new DepositRequest(account, amount, "Salary", null, "invalid-deposit");
+        var withdrawal = new WithdrawRequest(account, amount, "Goods", null, "invalid-withdrawal");
+        var transfer = new TransferRequest(account, destination, amount, null, "invalid-transfer");
+
+        for (Object request : List.of(deposit, withdrawal, transfer)) {
+            assertThat(validator.validate(request)).singleElement()
+                    .satisfies(violation -> assertThat(violation.getPropertyPath().toString()).isEqualTo("amount"));
+        }
+        assertThrows(BadRequestException.class, () -> transactions.deposit(deposit, jwt));
+        assertThrows(BadRequestException.class, () -> transactions.withdraw(withdrawal, jwt));
+        assertThrows(BadRequestException.class, () -> transactions.transfer(transfer, jwt));
+
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(balance(destination)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+        assertThat(transactionCount(destination)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0.0100", "999999999999999.9900"})
+    void acceptsExactTwoDecimalDepositsAtTheSupportedLimits(String value) {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        jdbc.update("update accounts set balance = 0 where id = ?", account);
+        BigDecimal amount = new BigDecimal(value);
+        var deposit = new DepositRequest(account, amount, "Salary", null, "valid-deposit");
+
+        assertThat(validator.validate(deposit)).isEmpty();
+
+        var saved = transactions.deposit(deposit, jwt(owner));
+
+        assertThat(saved.amount()).isEqualByComparingTo(amount);
+        assertThat(balance(account)).isEqualByComparingTo(amount);
+        assertThat(transactionCount(account)).isEqualTo(1);
     }
 
     @Test
