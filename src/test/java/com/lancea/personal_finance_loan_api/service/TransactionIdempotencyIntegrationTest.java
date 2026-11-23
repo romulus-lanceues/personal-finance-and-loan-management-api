@@ -6,6 +6,7 @@ import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanPaymentResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
+import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
 import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionException;
@@ -39,6 +40,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -129,7 +131,7 @@ class TransactionIdempotencyIntegrationTest {
     }
 
     @Test
-    void concurrentDepositsWithdrawalsAndTransfersEachMoveMoneyOnce() throws Exception {
+    void concurrentRetriesForDepositsWithdrawalsAndTransfersEachMoveMoneyOnce() throws Exception {
         UUID owner = createUser();
         UUID account = createAccount(owner);
         UUID destination = createAccount(owner);
@@ -152,6 +154,80 @@ class TransactionIdempotencyIntegrationTest {
         assertThat(balance(destination)).isEqualByComparingTo("112.50");
         assertThat(transactionCount(account)).isEqualTo(3);
         assertThat(transactionCount(destination)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentWithdrawalsWithDifferentKeysCannotBothOverdrawTheAccount() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = new BigDecimal("80.00");
+        var first = new WithdrawRequest(account, amount, "Goods", null, "withdrawal-1");
+        var second = new WithdrawRequest(account, amount, "Goods", null, "withdrawal-2");
+
+        var rejections = runConcurrently(account,
+                () -> badRequestMessage(() -> transactions.withdraw(first, jwt)),
+                () -> badRequestMessage(() -> transactions.withdraw(second, jwt)));
+
+        assertThat(rejections).containsExactlyInAnyOrder(Optional.empty(), Optional.of("Insufficient balance"));
+        assertThat(balance(account)).isEqualByComparingTo("20.00");
+        assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentDepositsWithDifferentKeysBothIncreaseTheBalance() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var first = new DepositRequest(account, new BigDecimal("12.50"), "Salary", null, "deposit-1");
+        var second = new DepositRequest(account, new BigDecimal("7.25"), "Salary", null, "deposit-2");
+
+        runConcurrently(account, () -> transactions.deposit(first, jwt), () -> transactions.deposit(second, jwt));
+
+        assertThat(balance(account)).isEqualByComparingTo("119.75");
+        assertThat(transactionCount(account)).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentTransfersInOppositeDirectionsPreserveBothBalanceChanges() throws Exception {
+        UUID owner = createUser();
+        UUID firstAccount = createAccount(owner);
+        UUID secondAccount = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var outbound = new TransferRequest(firstAccount, secondAccount, new BigDecimal("30.00"), null, "outbound");
+        var inbound = new TransferRequest(secondAccount, firstAccount, new BigDecimal("15.00"), null, "inbound");
+        UUID firstLockedAccount = firstAccount.compareTo(secondAccount) < 0 ? firstAccount : secondAccount;
+
+        runConcurrently(firstLockedAccount,
+                () -> transactions.transfer(outbound, jwt), () -> transactions.transfer(inbound, jwt));
+
+        assertThat(balance(firstAccount)).isEqualByComparingTo("85.00");
+        assertThat(balance(secondAccount)).isEqualByComparingTo("115.00");
+        assertThat(transactionCount(firstAccount)).isEqualTo(2);
+        assertThat(transactionCount(secondAccount)).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentPaymentsWithDifferentKeysPayTheFinalInstallmentOnlyOnce() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+        installments.payInstallment(loan, 1, new LoanPaymentRequest("first-installment"), jwt);
+        var first = new LoanPaymentRequest("final-payment-1");
+        var second = new LoanPaymentRequest("final-payment-2");
+
+        var rejections = runConcurrently(account,
+                () -> badRequestMessage(() -> installments.payInstallment(loan, 2, first, jwt)),
+                () -> badRequestMessage(() -> installments.payInstallment(loan, 2, second, jwt)));
+
+        assertThat(rejections).containsExactlyInAnyOrder(Optional.empty(), Optional.of("Loan is paid off"));
+        assertThat(balance(account)).isEqualByComparingTo("50.00");
+        assertThat(transactionCount(account)).isEqualTo(2);
+        assertThat(installments.getSpecificLoanSchedule(loan, 2, jwt).loanScheduleStatus())
+                .isEqualTo(LoanScheduleStatus.PAID);
+        assertThat(jdbc.queryForObject("select status from loans where id = ?", String.class, loan))
+                .isEqualTo(LoanStatus.PAID_OFF.name());
     }
 
     @Test
@@ -275,6 +351,13 @@ class TransactionIdempotencyIntegrationTest {
     }
 
     private <T> T assertConcurrentRetry(UUID account, Callable<T> request) throws Exception {
+        List<T> results = runConcurrently(account, request, request);
+        assertThat(results.getLast()).isEqualTo(results.getFirst());
+        return results.getFirst();
+    }
+
+    private <T> List<T> runConcurrently(UUID account, Callable<T> firstRequest, Callable<T> secondRequest)
+            throws Exception {
         try (var executor = Executors.newFixedThreadPool(2);
              var blocker = dataSource.getConnection()) {
             blocker.setAutoCommit(false);
@@ -283,17 +366,24 @@ class TransactionIdempotencyIntegrationTest {
                 lock.executeQuery().close();
             }
 
-            var first = executor.submit(request);
-            var second = executor.submit(request);
+            var first = executor.submit(firstRequest);
+            var second = executor.submit(secondRequest);
             try {
                 awaitTwoAccountLockWaiters();
             } finally {
                 blocker.rollback();
             }
 
-            T result = first.get(10, TimeUnit.SECONDS);
-            assertThat(second.get(10, TimeUnit.SECONDS)).isEqualTo(result);
-            return result;
+            return List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+        }
+    }
+
+    private Optional<String> badRequestMessage(Runnable request) {
+        try {
+            request.run();
+            return Optional.empty();
+        } catch (BadRequestException exception) {
+            return Optional.of(exception.getMessage());
         }
     }
 
@@ -310,7 +400,7 @@ class TransactionIdempotencyIntegrationTest {
             }
             Thread.sleep(50);
         }
-        throw new AssertionError("Expected both payment requests to wait for the account write lock");
+        throw new AssertionError("Expected both requests to wait for the account write lock");
     }
 
     private void assertConflict(Runnable request) {

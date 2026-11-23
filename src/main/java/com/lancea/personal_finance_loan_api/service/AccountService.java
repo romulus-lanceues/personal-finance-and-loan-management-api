@@ -75,7 +75,7 @@ public class AccountService {
 
         UUID userId = UserUtility.getUserId(jwt);
 
-        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId,userId)
+        Account account = accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(accountId,userId)
                 .orElseThrow( ()-> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         account.setAccountName(updateRequest.accountName());
@@ -87,12 +87,13 @@ public class AccountService {
 
     }
 
+    @Transactional
     @Auditable(action = "ACCOUNT_CLOSED", entityType = "ACCOUNT")
     public AccountResponse closeAccount(UUID accountId, Jwt jwt)  {
 
         UUID userId = UserUtility.getUserId(jwt);
 
-        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
+        Account account = accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(accountId, userId)
                 .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         if(account.getBalance().compareTo(BigDecimal.ZERO) > 0) throw new BadRequestException
@@ -111,7 +112,7 @@ public class AccountService {
     public AccountResponse deleteAccount(UUID accountId, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
 
-        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(accountId, userId)
+        Account account = accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(accountId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
 
         account.setIsDeleted(true);
