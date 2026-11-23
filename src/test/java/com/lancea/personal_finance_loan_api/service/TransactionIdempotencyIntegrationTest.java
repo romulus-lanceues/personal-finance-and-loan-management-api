@@ -34,11 +34,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -99,6 +102,8 @@ class TransactionIdempotencyIntegrationTest {
     private JdbcTemplate jdbc;
     @Autowired
     private DataSource dataSource;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
     @Autowired
     private TransactionService transactions;
     @Autowired
@@ -276,6 +281,7 @@ class TransactionIdempotencyIntegrationTest {
         var deposited = transactions.deposit(deposit, jwt);
         var withdrawn = transactions.withdraw(withdrawal, jwt);
         var transferred = transactions.transfer(transfer, jwt);
+        assertThat(transferred.getFirst().transactedAt()).isEqualTo(transferred.getLast().transactedAt());
         assertThat(transactions.deposit(deposit, jwt)).isEqualTo(deposited);
         assertThat(transactions.withdraw(withdrawal, jwt)).isEqualTo(withdrawn);
         assertThat(transactions.transfer(transfer, jwt)).containsExactlyElementsOf(transferred);
@@ -322,6 +328,34 @@ class TransactionIdempotencyIntegrationTest {
         transactions.deposit(new DepositRequest(account, amount, "Salary", null, "failed-write"), jwt);
         assertThat(balance(account)).isEqualByComparingTo("105.00");
         assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @Test
+    void monthlySummaryUsesUtcMonthBoundariesInManilaSession() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var novemberDeposit = transactions.deposit(
+                new DepositRequest(account, new BigDecimal("12.50"), "Salary", null, "november"), jwt);
+        var decemberDeposit = transactions.deposit(
+                new DepositRequest(account, new BigDecimal("7.25"), "Salary", null, "december"), jwt);
+        jdbc.update("update transactions set transacted_at = ? where id = ?",
+                OffsetDateTime.parse("2026-11-30T18:00:00Z"), novemberDeposit.id());
+        jdbc.update("update transactions set transacted_at = ? where id = ?",
+                OffsetDateTime.parse("2026-12-01T00:00:00Z"), decemberDeposit.id());
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.execute("set local time zone 'Asia/Manila'");
+
+            assertThat(transactions.getMonthlySummary(2026, 11, jwt)).singleElement().satisfies(summary -> {
+                assertThat(summary.totalAmount()).isEqualByComparingTo("12.50");
+                assertThat(summary.transactionCount()).isEqualTo(1L);
+            });
+            assertThat(transactions.getMonthlySummary(2026, 12, jwt)).singleElement().satisfies(summary -> {
+                assertThat(summary.totalAmount()).isEqualByComparingTo("7.25");
+                assertThat(summary.transactionCount()).isEqualTo(1L);
+            });
+        });
     }
 
     @Test

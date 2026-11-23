@@ -36,7 +36,9 @@ public class CachingConfig {
                 .serializeValuesWith(RedisSerializationContext
                         .SerializationPair.fromSerializer(jsonRedisSerializer));
 
-        return builder -> builder.cacheDefaults(defaultConfiguration);
+        return builder -> builder
+                .cacheDefaults(defaultConfiguration)
+                .transactionAware();
 
     }
 }

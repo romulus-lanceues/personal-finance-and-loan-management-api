@@ -25,12 +25,16 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,6 +49,7 @@ public class LoanScheduleService {
     private final AccountRepository accountRepository;
     private final ReferenceNumberGenerator referenceNumberGenerator;
     private final LoanScheduleCache loanScheduleCache;
+    private final CacheManager cacheManager;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -144,6 +149,18 @@ public class LoanScheduleService {
         accountRepository.save(account);
         Transaction savedPayment = transactionRepository.saveAndFlush(transactionCopyOfThePayment);
         entityManager.refresh(savedPayment);
+
+        LocalDate date = savedPayment.getTransactedAt()
+                .atZone(ZoneOffset.UTC)
+                .toLocalDate();
+
+        String cacheKey = userId + ":" + date.getYear() + ":" + date.getMonthValue();
+
+        Cache cache = cacheManager.getCache("spending-summary");
+
+        if (cache != null){
+            cache.evict(cacheKey);
+        }
 
         return generateLoanPaymentResponse(loan, loanSchedule, savedPayment);
     }

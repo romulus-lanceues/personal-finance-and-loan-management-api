@@ -33,6 +33,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
@@ -194,6 +195,7 @@ public class TransactionService {
         accountRepository.save(toAccount);
 
         String transferReference = UUID.randomUUID().toString();
+        Instant transactedAt = Instant.now();
 
         Transaction debit = Transaction.builder()
                 .account(fromAccount)
@@ -203,7 +205,7 @@ public class TransactionService {
                 .category("Transfer Out")
                 .idempotencyKey(transferRequest.idempotencyKey())
                 .description(transferRequest.description())
-                .transactedAt(Instant.now())
+                .transactedAt(transactedAt)
                 .transferReference(transferReference)
                 .build();
 
@@ -215,7 +217,7 @@ public class TransactionService {
                 .category("Transfer In")
                 .idempotencyKey(null)
                 .description(transferRequest.description())
-                .transactedAt(Instant.now())
+                .transactedAt(transactedAt)
                 .transferReference(transferReference)
                 .build();
 
@@ -291,11 +293,19 @@ public class TransactionService {
     }
 
     @Cacheable(cacheNames = "spending-summary", keyGenerator = "customKeyGenerator")
-    public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt){
+    public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt) {
         UUID userId = UserUtility.getUserId(jwt);
+        if (month < 1 || month > 12) {
+            return List.of();
+        }
 
-        return  transactionRepository.monthlySummary(userId, year, month).stream()
-                .map(MonthlySummaryResponse::of).collect(Collectors.toList());
+        YearMonth requestedMonth = YearMonth.of(year, month);
+        Instant startInclusive = requestedMonth.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endExclusive = requestedMonth.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        return transactionRepository.monthlySummary(userId, startInclusive, endExclusive).stream()
+                .map(MonthlySummaryResponse::of)
+                .collect(Collectors.toList());
     }
 
 
