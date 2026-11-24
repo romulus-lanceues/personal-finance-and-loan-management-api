@@ -7,7 +7,12 @@ import com.lancea.personal_finance_loan_api.service.AuthService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Import;
@@ -21,6 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -49,6 +55,31 @@ public class AuthControllerTest {
 
     @MockitoBean
     JwtDecoder jwtDecoder;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"register", "login"})
+    @ExtendWith(OutputCaptureExtension.class)
+    void validationErrorsKeepCredentialsOutOfLogsAndResponses(String operation, CapturedOutput output) throws Exception {
+        boolean registration = operation.equals("register");
+        String password = "pw$3B";
+        String confirmation = "cf$7K";
+        var request = new AuthenticationRequest(registration ? "Test User" : null,
+                "test@example.com", password, registration ? confirmation : null);
+
+        var result = mockMvc.perform(post("/api/v1/auth/" + operation)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.password").isNotEmpty());
+        if (registration) {
+            result.andExpect(jsonPath("$.errors.confirmPassword").isNotEmpty());
+            assertThat(output.getAll()).contains("Field: confirmPassword");
+        }
+
+        assertThat(output.getAll()).contains("Field: password").doesNotContain(password, confirmation);
+        assertThat(result.andReturn().getResponse().getContentAsString()).doesNotContain(password, confirmation);
+        verifyNoInteractions(authService);
+    }
 
     @Nested
     @DisplayName("register tests")

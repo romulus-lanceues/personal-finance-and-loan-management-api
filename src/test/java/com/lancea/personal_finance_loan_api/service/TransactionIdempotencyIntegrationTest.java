@@ -1,5 +1,6 @@
 package com.lancea.personal_finance_loan_api.service;
 
+import com.lancea.personal_finance_loan_api.config.TestInfrastructureConfig;
 import com.lancea.personal_finance_loan_api.dto.request.AccountRequest;
 import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
 import com.lancea.personal_finance_loan_api.dto.request.LoanPaymentRequest;
@@ -7,7 +8,6 @@ import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
 import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
 import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
 import com.lancea.personal_finance_loan_api.dto.response.LoanPaymentResponse;
-import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.enums.AccountType;
 import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
@@ -16,32 +16,21 @@ import com.lancea.personal_finance_loan_api.exception.BadRequestException;
 import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionException;
 import com.lancea.personal_finance_loan_api.exception.GlobalExceptionHandler;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
-import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -51,6 +40,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -62,50 +53,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-@SpringBootTest(classes = TransactionIdempotencyIntegrationTest.Config.class,
-        webEnvironment = SpringBootTest.WebEnvironment.NONE ,
-        properties = {"spring.jpa.show-sql=false", "spring.flyway.baseline-on-migrate=false",
-                "logging.level.com.lancea.personal_finance_loan_api.exception.GlobalExceptionHandler=OFF"})
-@EnabledIf(value = "hasDatabaseConfiguration",
-        disabledReason = "Set idempotency.test.jdbcUrl or IDEMPOTENCY_TEST_JDBC_URL to run against local PostgreSQL.")
+@SpringBootTest
+@ActiveProfiles("test")
+@Import(TestInfrastructureConfig.class)
 class TransactionIdempotencyIntegrationTest {
-
-    @Configuration(proxyBeanMethods = false)
-    @EnableAutoConfiguration(exclude = DataRedisAutoConfiguration.class)
-    @EnableJpaAuditing
-    @EnableJpaRepositories(basePackageClasses = AccountRepository.class)
-    @EntityScan(basePackageClasses = Account.class)
-    @Import({AccountService.class, TransactionService.class, LoanService.class, LoanScheduleService.class,
-            LoanScheduleCache.class, ReferenceNumberGenerator.class, GlobalExceptionHandler.class})
-    static class Config {
-        @Bean
-        CacheManager cacheManager() {
-            return new ConcurrentMapCacheManager("loan-schedule", "spending-summary");
-        }
-    }
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry) {
-        String url = configuredJdbcUrl();
-        if (!url.matches("jdbc:postgresql://(?:localhost|127\\.0\\.0\\.1):[0-9]+/idempotency_test")) {
-            throw new IllegalStateException(
-                    "Use a PostgreSQL URL on localhost with the database name idempotency_test.");
-        }
-        registry.add("spring.datasource.url", () -> url);
-        registry.add("spring.datasource.username", () -> System.getProperty("idempotency.test.user",
-                System.getenv().getOrDefault("IDEMPOTENCY_TEST_DB_USER", "postgres")));
-        registry.add("spring.datasource.password",
-                () -> System.getenv().getOrDefault("IDEMPOTENCY_TEST_DB_PASSWORD", ""));
-    }
-
-    static boolean hasDatabaseConfiguration() {
-        return !configuredJdbcUrl().isBlank();
-    }
-
-    private static String configuredJdbcUrl() {
-        return System.getProperty("idempotency.test.jdbcUrl",
-                System.getenv().getOrDefault("IDEMPOTENCY_TEST_JDBC_URL", ""));
-    }
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -125,6 +76,77 @@ class TransactionIdempotencyIntegrationTest {
     private GlobalExceptionHandler exceptionHandler;
     @Autowired
     private Validator validator;
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Test
+    void cachedScheduleStillRequiresOwnershipAndRefreshesAfterPayment() {
+        UUID owner = createUser();
+        UUID loan = createLoan(owner, createAccount(owner));
+        Jwt ownerJwt = jwt(owner);
+        Jwt outsiderJwt = jwt(createUser());
+        var cache = cacheManager.getCache("loan-schedule");
+
+        assertThrows(ResourceNotFoundException.class, () -> installments.getLoanSchedules(loan, outsiderJwt));
+        var schedules = installments.getLoanSchedules(loan, ownerJwt);
+        assertThat(schedules).filteredOn(schedule -> schedule.paymentNumber() == 1).singleElement()
+                .satisfies(schedule -> assertThat(schedule.loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PENDING));
+        assertThat(cache.get(loan)).isNotNull();
+        assertThrows(ResourceNotFoundException.class, () -> installments.getLoanSchedules(loan, outsiderJwt));
+
+        installments.payInstallment(loan, 1, new LoanPaymentRequest("evict-schedule"), ownerJwt);
+
+        assertThat(cache.get(loan)).isNull();
+        assertThat(installments.getLoanSchedules(loan, ownerJwt))
+                .filteredOn(schedule -> schedule.paymentNumber() == 1).singleElement()
+                .satisfies(schedule -> assertThat(schedule.loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PAID));
+        jdbc.update("update loans set is_deleted = true where id = ?", loan);
+        assertThat(cache.get(loan)).isNotNull();
+        assertThrows(ResourceNotFoundException.class, () -> installments.getLoanSchedules(loan, ownerJwt));
+    }
+
+    @Test
+    void installmentPaymentEvictsTheWarmSummaryOnlyAfterCommit() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+        var request = new LoanPaymentRequest("summary-payment");
+        YearMonth month = YearMonth.now(ZoneOffset.UTC);
+        String key = owner + ":" + month.getYear() + ":" + month.getMonthValue();
+        var cache = cacheManager.getCache("spending-summary");
+        var tx = new TransactionTemplate(transactionManager);
+
+        assertThat(transactions.getMonthlySummary(month.getYear(), month.getMonthValue(), jwt)).isEmpty();
+        assertThat(cache.get(key)).isNotNull();
+
+        tx.executeWithoutResult(status -> {
+            installments.payInstallment(loan, 1, request, jwt);
+            assertThat(cache.get(key)).isNotNull();
+            status.setRollbackOnly();
+        });
+
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+        assertThat(installments.getSpecificLoanSchedule(loan, 1, jwt).loanScheduleStatus())
+                .isEqualTo(LoanScheduleStatus.PENDING);
+        assertThat(cache.get(key)).isNotNull();
+        assertThat(transactions.getMonthlySummary(month.getYear(), month.getMonthValue(), jwt)).isEmpty();
+
+        tx.executeWithoutResult(status -> {
+            installments.payInstallment(loan, 1, request, jwt);
+            assertThat(cache.get(key)).isNotNull();
+        });
+
+        assertThat(cache.get(key)).isNull();
+        assertThat(transactions.getMonthlySummary(month.getYear(), month.getMonthValue(), jwt))
+                .singleElement().satisfies(summary -> {
+                    assertThat(summary.category()).isEqualTo("LOAN_REPAYMENT");
+                    assertThat(summary.totalAmount()).isEqualByComparingTo("25.00");
+                    assertThat(summary.transactionCount()).isEqualTo(1L);
+                });
+    }
 
     @Test
     void concurrentInstallmentRetriesWaitForTheAccountAndReplayOnePayment() throws Exception {
@@ -323,6 +345,44 @@ class TransactionIdempotencyIntegrationTest {
         assertThat(balance(differentDestination)).isEqualByComparingTo("112.50");
         assertThat(transactionCount(account)).isEqualTo(3);
         assertThat(transactionCount(destination)).isEqualTo(1);
+    }
+
+    @Test
+    void postgresEnforcesAccountScopedIdempotencyAndAcceptsMultipleNullKeys() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID otherAccount = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var first = transactions.deposit(new DepositRequest(account, BigDecimal.TEN, "Salary", null, "shared"), jwt);
+        var second = transactions.deposit(new DepositRequest(account, BigDecimal.TEN, "Salary", null, "distinct"), jwt);
+
+        assertThat(transactions.deposit(new DepositRequest(otherAccount, BigDecimal.TEN, "Salary", null, "shared"), jwt)
+                .id()).isNotEqualTo(first.id());
+        assertThatThrownBy(() -> jdbc.update("update transactions set idempotency_key = ? where id = ?",
+                "shared", second.id())).isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(jdbc.update("update transactions set idempotency_key = null where id in (?, ?)",
+                first.id(), second.id())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from transactions where account_id = ? and idempotency_key is null",
+                Long.class, account)).isEqualTo(2L);
+    }
+
+    @Test
+    void depositAndWithdrawalPersistTheirSubmittedDescriptions() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var deposit = transactions.deposit(
+                new DepositRequest(account, BigDecimal.TEN, "Salary", "November payroll", "payroll-deposit"), jwt);
+        var withdrawal = transactions.withdraw(
+                new WithdrawRequest(account, BigDecimal.ONE, "Goods", "Office supplies", "supplies-withdrawal"), jwt);
+
+        assertThat(deposit.description()).isEqualTo("November payroll");
+        assertThat(withdrawal.description()).isEqualTo("Office supplies");
+        assertThat(jdbc.queryForObject("select description from transactions where id = ?", String.class, deposit.id()))
+                .isEqualTo(deposit.description());
+        assertThat(jdbc.queryForObject("select description from transactions where id = ?", String.class, withdrawal.id()))
+                .isEqualTo(withdrawal.description());
     }
 
     @Test
