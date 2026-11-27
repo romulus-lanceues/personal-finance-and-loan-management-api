@@ -124,7 +124,13 @@ public class LoanServiceTest {
                 @SuppressWarnings("unchecked")
                 ArgumentCaptor<List<LoanSchedule>> capturedLoanScheduleList = ArgumentCaptor.forClass(List.class);
                 verify(loanScheduleRepository).saveAll(capturedLoanScheduleList.capture());
-                assertThat(capturedLoanScheduleList.getValue()).hasSize(36);
+                List<LoanSchedule> schedules = capturedLoanScheduleList.getValue();
+                assertThat(schedules).hasSize(36);
+                BigDecimal totalPrincipal = schedules.stream()
+                        .map(LoanSchedule::getPrincipalPortion)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                assertThat(totalPrincipal).isEqualByComparingTo(savedLoan.getPrincipal());
+                assertThat(schedules.getLast().getRemainingBalance()).isZero();
 
 
                 assertThat(response).isNotNull();

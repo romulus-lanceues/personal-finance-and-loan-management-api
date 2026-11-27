@@ -4,6 +4,8 @@ import org.springframework.boot.cache.autoconfigure.RedisCacheManagerBuilderCust
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheWriter;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.serializer.GenericJacksonJsonRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -15,7 +17,7 @@ import java.time.Duration;
 public class CachingConfig {
 
     @Bean
-    public RedisCacheManagerBuilderCustomizer redisCacheManagerBuilderCustomizer(){
+    public RedisCacheManagerBuilderCustomizer redisCacheManagerBuilderCustomizer(RedisConnectionFactory connectionFactory) {
 
         BasicPolymorphicTypeValidator polymorphicTypeValidator = BasicPolymorphicTypeValidator.builder()
                 .allowIfSubType("com.lancea.personal_finance_loan_api.dto.")
@@ -36,7 +38,11 @@ public class CachingConfig {
                 .serializeValuesWith(RedisSerializationContext
                         .SerializationPair.fromSerializer(jsonRedisSerializer));
 
-        return builder -> builder.cacheDefaults(defaultConfiguration);
+        RedisCacheWriter cacheWriter = RedisCacheWriter.create(connectionFactory, configurer -> configurer.immediateWrites());
+        return builder -> builder
+                .cacheDefaults(defaultConfiguration)
+                .cacheWriter(cacheWriter)
+                .transactionAware();
 
     }
 }

@@ -9,6 +9,7 @@ import com.lancea.personal_finance_loan_api.dto.response.PagedTransactionRespons
 import com.lancea.personal_finance_loan_api.dto.response.TransactionResponse;
 import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.FilterSearch;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
@@ -17,6 +18,9 @@ import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
+import com.lancea.personal_finance_loan_api.validation.validator.TransactionAmountValidator;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.Cache;
@@ -27,10 +31,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -43,65 +52,85 @@ public class TransactionService {
     private final ReferenceNumberGenerator referenceNumberGenerator;
     private final CacheManager cacheManager;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Auditable(action = "DEPOSIT", entityType = "TRANSACTION")
     @Transactional
     public TransactionResponse deposit(DepositRequest depositRequest, Jwt jwt){
 
+        BigDecimal depositAmount = validateAmount(depositRequest.amount());
         UUID userId = UserUtility.getUserId(jwt);
 
-        transactionRepository.findByIdempotencyKey(depositRequest.idempotencyKey())
-                .ifPresent( existing -> {
-                    throw new DuplicateTransactionException("Duplicate transaction detected", TransactionResponse.of(existing));
-                });
+        Account account = lockAccount(depositRequest.accountId(), userId);
 
-        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(depositRequest.accountId(), userId)
-                .orElseThrow( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
+        Optional<Transaction> transaction = transactionRepository
+                .findByIdempotencyKeyAndAccountIdAndAccountUserId(
+                        depositRequest.idempotencyKey(),
+                        depositRequest.accountId(),
+                        userId
+                );
 
+        if (transaction.isPresent()) {
+            Transaction existingTransaction = transaction.get();
+            if (matchesRequest(existingTransaction, TransactionType.DEPOSIT, depositAmount, depositRequest.description())
+                    && Objects.equals(existingTransaction.getCategory(), depositRequest.category())) {
+                return TransactionResponse.of(existingTransaction);
+            }
+
+            throw new DuplicateTransactionException("Idempotency key already used for a different request.");
+        }
+
+        Currency.requireSupported(account.getCurrency());
         if(!account.getIsActive()) throw new BadRequestException("Cannot deposit to a closed account");
 
-        account.setBalance(account.getBalance().add(depositRequest.amount()));
+        account.setBalance(validateBalance(account.getBalance().add(depositAmount)));
         accountRepository.save(account);
 
-        Transaction transaction = Transaction.builder()
+        Transaction createdTransaction = Transaction.builder()
                 .account(account)
                 .referenceNumber(referenceNumberGenerator.generate())
                 .type(TransactionType.DEPOSIT)
-                .amount(depositRequest.amount())
+                .amount(depositAmount)
                 .category(depositRequest.category())
                 .idempotencyKey(depositRequest.idempotencyKey())
-                .description(depositRequest.idempotencyKey())
+                .description(depositRequest.description())
                 .transactedAt(Instant.now())
                 .build();
 
-        evictSpendingSummaryCache(userId, transaction.getTransactedAt());
-
-        return TransactionResponse.of(transactionRepository.save(transaction));
+        return saveAndRespond(createdTransaction, userId);
 
     }
-
 
 
     @Auditable(action = "WITHDRAWAL", entityType = "TRANSACTION")
     @Transactional
     public TransactionResponse withdraw(WithdrawRequest withdrawRequest, Jwt jwt){
 
+        BigDecimal amount = validateAmount(withdrawRequest.amount());
         UUID userId = UserUtility.getUserId(jwt);
 
-        transactionRepository.findByIdempotencyKey(withdrawRequest.idempotencyKey())
-                .ifPresent( transaction -> {
-            throw new DuplicateTransactionException("Duplicated transaction detected", TransactionResponse.of(transaction));
-        } );
+        Account account = lockAccount(withdrawRequest.accountId(), userId);
+        Optional<Transaction> previous = transactionRepository.findByIdempotencyKeyAndAccountIdAndAccountUserId(
+                withdrawRequest.idempotencyKey(), account.getId(), userId);
 
-        Account account = accountRepository.findByIdAndUserIdAndIsDeletedFalse(withdrawRequest.accountId(), userId)
-                .orElseThrow( ( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted")));
+        if (previous.isPresent()) {
+            Transaction existing = previous.get();
+            if (matchesRequest(existing, TransactionType.WITHDRAWAL, amount, withdrawRequest.description())
+                    && Objects.equals(existing.getCategory(), withdrawRequest.category())) {
+                return TransactionResponse.of(existing);
+            }
+            throw new DuplicateTransactionException("Idempotency key already used for a different request.");
+        }
 
-        if(!account.getIsActive()) throw new BadRequestException("Cannot withdraw to a closed account");
+        Currency.requireSupported(account.getCurrency());
+        if(!account.getIsActive()) throw new BadRequestException("Cannot withdraw from a closed account");
 
-        if(account.getBalance().compareTo(withdrawRequest.amount()) < 0){
+        if(account.getBalance().compareTo(amount) < 0){
             throw new BadRequestException("Insufficient balance");
         }
 
-        account.setBalance(account.getBalance().subtract(withdrawRequest.amount()));
+        account.setBalance(validateBalance(account.getBalance().subtract(amount)));
         accountRepository.save(account);
 
 
@@ -109,16 +138,14 @@ public class TransactionService {
                 .account(account)
                 .referenceNumber(referenceNumberGenerator.generate())
                 .type(TransactionType.WITHDRAWAL)
-                .amount(withdrawRequest.amount())
+                .amount(amount)
                 .category(withdrawRequest.category())
                 .idempotencyKey(withdrawRequest.idempotencyKey())
-                .description(withdrawRequest.idempotencyKey())
+                .description(withdrawRequest.description())
                 .transactedAt(Instant.now())
                 .build();
 
-        evictSpendingSummaryCache(userId, transaction.getTransactedAt());
-
-        return TransactionResponse.of(transactionRepository.save(transaction));
+        return saveAndRespond(transaction, userId);
 
     }
 
@@ -126,44 +153,67 @@ public class TransactionService {
     @Transactional
     public List<TransactionResponse> transfer(TransferRequest transferRequest, Jwt jwt){
 
+        BigDecimal amount = validateAmount(transferRequest.amount());
         UUID userId = UserUtility.getUserId(jwt);
+        UUID fromAccountId = transferRequest.fromAccountId();
+        UUID toAccountId = transferRequest.toAccountId();
 
-        transactionRepository.findByIdempotencyKey(transferRequest.idempotencyKey())
-                .ifPresent( transaction -> {
-                    throw new DuplicateTransactionException("Duplicated transaction detected", TransactionResponse.of(transaction));
-                } );
+        if (fromAccountId.equals(toAccountId)) {
+            throw new BadRequestException("Cannot transfer to the same account");
+        }
 
-        if(transferRequest.fromAccountId().equals(transferRequest.toAccountId())) throw  new BadRequestException("Cannot transfer to the same account");
+        // Lock both accounts in the same order for transfers in either direction.
+        boolean sourceFirst = fromAccountId.compareTo(toAccountId) < 0;
+        Account firstAccount = lockAccount(sourceFirst ? fromAccountId : toAccountId, userId);
+        Account secondAccount = lockAccount(sourceFirst ? toAccountId : fromAccountId, userId);
+        Account fromAccount = sourceFirst ? firstAccount : secondAccount;
+        Account toAccount = sourceFirst ? secondAccount : firstAccount;
 
-        Account fromAccount = accountRepository.findByIdAndUserIdAndIsDeletedFalse(transferRequest.fromAccountId(), userId)
-                .orElseThrow( ( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted")));
+        Optional<Transaction> previous = transactionRepository.findByIdempotencyKeyAndAccountIdAndAccountUserId(
+                transferRequest.idempotencyKey(), fromAccountId, userId);
+        if (previous.isPresent()) {
+            Transaction debit = previous.get();
+            if (matchesRequest(debit, TransactionType.TRANSFER, amount, transferRequest.description())
+                    && debit.getTransferReference() != null) {
+                Optional<Transaction> credit = transactionRepository
+                        .findByTransferReferenceAndAccountIdAndAccountUserIdAndIdempotencyKeyIsNull(
+                                debit.getTransferReference(), toAccountId, userId);
+                if (credit.isPresent()) {
+                    return List.of(TransactionResponse.of(debit), TransactionResponse.of(credit.get()));
+                }
+            }
+            throw new DuplicateTransactionException("Idempotency key already used for a different request.");
+        }
 
-        Account toAccount = accountRepository.findByIdAndUserIdAndIsDeletedFalse(transferRequest.toAccountId(), userId)
-                .orElseThrow( ( () -> new ResourceNotFoundException("Account doesn't exist or has been deleted")));
-
-
+        if (fromAccount.getCurrency() != toAccount.getCurrency()) {
+            throw new BadRequestException("Transfer accounts must use the same currency");
+        }
+        Currency.requireSupported(fromAccount.getCurrency());
         if(!fromAccount.getIsActive()) throw new BadRequestException("Source account is closed");
         if(!toAccount.getIsActive()) throw new BadRequestException("Destination account is closed");
 
-        if(fromAccount.getBalance().compareTo(transferRequest.amount()) < 0)  throw new BadRequestException("Insufficient balance");
+        if(fromAccount.getBalance().compareTo(amount) < 0)  throw new BadRequestException("Insufficient balance");
 
-        fromAccount.setBalance(fromAccount.getBalance().subtract(transferRequest.amount()));
-        toAccount.setBalance(toAccount.getBalance().add(transferRequest.amount()));
+        BigDecimal sourceBalance = validateBalance(fromAccount.getBalance().subtract(amount));
+        BigDecimal destinationBalance = validateBalance(toAccount.getBalance().add(amount));
+        fromAccount.setBalance(sourceBalance);
+        toAccount.setBalance(destinationBalance);
 
         accountRepository.save(fromAccount);
         accountRepository.save(toAccount);
 
         String transferReference = UUID.randomUUID().toString();
+        Instant transactedAt = Instant.now();
 
         Transaction debit = Transaction.builder()
                 .account(fromAccount)
                 .referenceNumber(referenceNumberGenerator.generate())
                 .type(TransactionType.TRANSFER)
-                .amount(transferRequest.amount())
+                .amount(amount)
                 .category("Transfer Out")
                 .idempotencyKey(transferRequest.idempotencyKey())
                 .description(transferRequest.description())
-                .transactedAt(Instant.now())
+                .transactedAt(transactedAt)
                 .transferReference(transferReference)
                 .build();
 
@@ -171,16 +221,18 @@ public class TransactionService {
                 .account(toAccount)
                 .referenceNumber(referenceNumberGenerator.generate())
                 .type(TransactionType.TRANSFER)
-                .amount(transferRequest.amount())
+                .amount(amount)
                 .category("Transfer In")
                 .idempotencyKey(null)
                 .description(transferRequest.description())
-                .transactedAt(Instant.now())
+                .transactedAt(transactedAt)
                 .transferReference(transferReference)
                 .build();
 
         transactionRepository.save(debit);
-        transactionRepository.save(credit);
+        transactionRepository.saveAndFlush(credit);
+        entityManager.refresh(debit);
+        entityManager.refresh(credit);
 
         evictSpendingSummaryCache(userId, debit.getTransactedAt());
 
@@ -249,13 +301,56 @@ public class TransactionService {
     }
 
     @Cacheable(cacheNames = "spending-summary", keyGenerator = "customKeyGenerator")
-    public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt){
+    public List<MonthlySummaryResponse> getMonthlySummary(int year, int month, Jwt jwt) {
         UUID userId = UserUtility.getUserId(jwt);
+        if (month < 1 || month > 12) {
+            return List.of();
+        }
 
-        return  transactionRepository.monthlySummary(userId, year, month).stream()
-                .map(MonthlySummaryResponse::of).collect(Collectors.toList());
+        YearMonth requestedMonth = YearMonth.of(year, month);
+        Instant startInclusive = requestedMonth.atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endExclusive = requestedMonth.plusMonths(1).atDay(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        return transactionRepository.monthlySummary(userId, startInclusive, endExclusive).stream()
+                .map(MonthlySummaryResponse::of)
+                .collect(Collectors.toList());
     }
 
+
+    private BigDecimal validateAmount(BigDecimal requestedAmount) {
+        String error = TransactionAmountValidator.validationError(requestedAmount);
+        if (error != null) {
+            throw new BadRequestException(error);
+        }
+
+        return requestedAmount.setScale(TransactionAmountValidator.AMOUNT_SCALE, RoundingMode.UNNECESSARY);
+    }
+
+    private BigDecimal validateBalance(BigDecimal balance) {
+        if (balance.precision() - balance.scale() > 15) {
+            throw new BadRequestException("This transaction would exceed the maximum account balance.");
+        }
+        return balance;
+    }
+
+    private Account lockAccount(UUID accountId, UUID userId) {
+        return accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(accountId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account doesn't exist or has been deleted"));
+    }
+
+    private boolean matchesRequest(Transaction transaction, TransactionType type, BigDecimal amount,
+                                   String description) {
+        return transaction.getType() == type
+                && transaction.getAmount().compareTo(amount) == 0
+                && Objects.equals(transaction.getDescription(), description);
+    }
+
+    private TransactionResponse saveAndRespond(Transaction transaction, UUID userId) {
+        Transaction saved = transactionRepository.saveAndFlush(transaction);
+        entityManager.refresh(saved);
+        evictSpendingSummaryCache(userId, saved.getTransactedAt());
+        return TransactionResponse.of(saved);
+    }
 
     private void evictSpendingSummaryCache(UUID userId, Instant transactedAt){
         LocalDate date = transactedAt.atZone(ZoneOffset.UTC).toLocalDate();

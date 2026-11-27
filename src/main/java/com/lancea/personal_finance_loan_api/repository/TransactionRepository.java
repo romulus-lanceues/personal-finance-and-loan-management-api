@@ -8,13 +8,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
-
-    Optional<Transaction> findByIdempotencyKey(String idempotencyKey);
 
     Page<Transaction> findByAccountUserId(UUID userId, Pageable pageable);
     Page<Transaction> findByAccountUserIdAndType(UUID userId, TransactionType type, Pageable pageable);
@@ -32,11 +31,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             FROM Transaction t
             WHERE t.account.user.id = :userId
                 AND t.type IN ('WITHDRAWAL', 'TRANSFER', 'LOAN_PAYMENT', 'DEPOSIT')
-                AND EXTRACT(YEAR FROM t.transactedAt) = :year
-                AND EXTRACT(MONTH FROM t.transactedAt) =:month
+                AND t.transactedAt >= :startInclusive
+                AND t.transactedAt < :endExclusive
                 AND t.isDeleted = false
             GROUP BY t.category
             ORDER BY totalAmount DESC
     """)
-    List<MonthlySummaryProjection> monthlySummary(UUID userId, int year, int month);
+    List<MonthlySummaryProjection> monthlySummary(UUID userId, Instant startInclusive, Instant endExclusive);
+
+    Optional<Transaction> findByIdempotencyKeyAndAccountIdAndAccountUserId(String idempotencyKey, UUID accountId, UUID userId);
+
+    Optional<Transaction> findByTransferReferenceAndAccountIdAndAccountUserIdAndIdempotencyKeyIsNull(
+            String transferReference, UUID accountId, UUID userId);
+
 }

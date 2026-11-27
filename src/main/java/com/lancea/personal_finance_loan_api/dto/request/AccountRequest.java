@@ -17,8 +17,7 @@ public record AccountRequest(
                  example = "CASH")
          AccountType accountType,
 
-         @Schema( description = "The currency the account will be using",
-                    example = "PHP")
+         @Schema(description = "The currency for the new account", allowableValues = {"PHP"}, example = "PHP")
          @NotNull(message = "Currency is required")
          Currency currency
 ) {

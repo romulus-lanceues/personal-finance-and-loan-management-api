@@ -10,29 +10,35 @@ import com.lancea.personal_finance_loan_api.entity.Account;
 import com.lancea.personal_finance_loan_api.entity.Loan;
 import com.lancea.personal_finance_loan_api.entity.LoanSchedule;
 import com.lancea.personal_finance_loan_api.entity.Transaction;
+import com.lancea.personal_finance_loan_api.enums.Currency;
 import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
 import com.lancea.personal_finance_loan_api.enums.LoanStatus;
 import com.lancea.personal_finance_loan_api.enums.TransactionType;
 import com.lancea.personal_finance_loan_api.exception.BadRequestException;
+import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionException;
 import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
 import com.lancea.personal_finance_loan_api.repository.AccountRepository;
 import com.lancea.personal_finance_loan_api.repository.LoanRepository;
 import com.lancea.personal_finance_loan_api.repository.LoanScheduleRepository;
 import com.lancea.personal_finance_loan_api.repository.TransactionRepository;
 import com.lancea.personal_finance_loan_api.utility.UserUtility;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +50,10 @@ public class LoanScheduleService {
     private final AccountRepository accountRepository;
     private final ReferenceNumberGenerator referenceNumberGenerator;
     private final LoanScheduleCache loanScheduleCache;
+    private final CacheManager cacheManager;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public List<LoanScheduleResponse> getLoanSchedules(UUID loanId, Jwt jwt){
         UUID userId = UserUtility.getUserId(jwt);
@@ -74,24 +84,42 @@ public class LoanScheduleService {
 
         UUID userId = UserUtility.getUserId(jwt);
 
+        UUID accountId = loanRepository.findFundingAccountId(loanId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Loan doesn't exist"));
+        Account account = accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(accountId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Funding account doesn't exist or has been deleted"));
+
+        // Load payment state after acquiring the lock so a waiting payment sees the committed state.
         Loan loan = loanRepository.findByIdAndUserIdAndIsDeletedFalse(loanId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Loan doesn't exist"));
 
-        LoanSchedule loanSchedule = loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber)
-                .orElseThrow( () -> new ResourceNotFoundException("Payment schedule not found"));
-
         Optional<Transaction> existingTransaction = transactionRepository
-                .findByIdempotencyKey(loanPaymentRequest.idempotencyKey());
+                .findByIdempotencyKeyAndAccountIdAndAccountUserId(
+                        loanPaymentRequest.idempotencyKey(), accountId, userId);
 
-        if(existingTransaction.isPresent()){
-            return generateLoanPaymentResponse(loan, loanSchedule, existingTransaction.get());
+        if (existingTransaction.isPresent()) {
+            Transaction payment = existingTransaction.get();
+            LoanSchedule paidSchedule = payment.getLoanSchedule();
+            if (payment.getType() != TransactionType.LOAN_PAYMENT
+                    || payment.getLoan() == null
+                    || !loanId.equals(payment.getLoan().getId())
+                    || paidSchedule == null
+                    || !loanId.equals(paidSchedule.getLoan().getId())
+                    || paidSchedule.getPaymentNumber() != paymentNumber
+                    || payment.getLoanStatusAfterPayment() == null) {
+                throw new DuplicateTransactionException("Idempotency key already used for a different or unverifiable request.");
+            }
+            return generateLoanPaymentResponse(loan, paidSchedule, payment);
         }
+
+        Currency.requireSupported(account.getCurrency());
+        LoanSchedule loanSchedule = loanScheduleRepository.findByLoanIdAndPaymentNumber(loanId, paymentNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment schedule not found"));
 
         checkIfLoanIsPaidOff(loan);
         checkIfLoanScheduleIsAlreadyPaid(loanSchedule);
         checkForPreviousTransaction(loanId, paymentNumber);
 
-        Account account = loan.getAccount();
         validateAccountEligibleForTransaction(account, loanSchedule.getPaymentAmount());
 
         account.setBalance(account.getBalance()
@@ -99,9 +127,16 @@ public class LoanScheduleService {
 
         loanSchedule.setStatus(LoanScheduleStatus.PAID);
 
+        if (!loanScheduleRepository.existsByLoanIdAndPaymentNumberGreaterThanAndStatus(
+                loanId, paymentNumber, LoanScheduleStatus.PENDING)) {
+            loan.setStatus(LoanStatus.PAID_OFF);
+        }
+
         Transaction transactionCopyOfThePayment = Transaction.builder()
                 .account(account)
                 .loan(loan)
+                .loanSchedule(loanSchedule)
+                .loanStatusAfterPayment(loan.getStatus())
                 .referenceNumber(referenceNumberGenerator.generate())
                 .type(TransactionType.LOAN_PAYMENT)
                 .amount(loanSchedule.getPaymentAmount())
@@ -111,19 +146,25 @@ public class LoanScheduleService {
                 .build();
 
 
-        boolean isThereARemainingPendingPaymentSchedule = loanScheduleRepository
-                .existsByLoanIdAndPaymentNumberGreaterThanAndStatus(loanId, paymentNumber, LoanScheduleStatus.PENDING);
-
-        if(!isThereARemainingPendingPaymentSchedule){
-            loan.setStatus(LoanStatus.PAID_OFF);
-        }
-
-        transactionRepository.save(transactionCopyOfThePayment);
         loanScheduleRepository.save(loanSchedule);
         loanRepository.save(loan);
         accountRepository.save(account);
+        Transaction savedPayment = transactionRepository.saveAndFlush(transactionCopyOfThePayment);
+        entityManager.refresh(savedPayment);
 
-        return generateLoanPaymentResponse(loan, loanSchedule, transactionCopyOfThePayment);
+        LocalDate date = savedPayment.getTransactedAt()
+                .atZone(ZoneOffset.UTC)
+                .toLocalDate();
+
+        String cacheKey = userId + ":" + date.getYear() + ":" + date.getMonthValue();
+
+        Cache cache = cacheManager.getCache("spending-summary");
+
+        if (cache != null){
+            cache.evict(cacheKey);
+        }
+
+        return generateLoanPaymentResponse(loan, loanSchedule, savedPayment);
     }
 
     private void checkIfLoanIsPaidOff(Loan loan){
@@ -151,7 +192,7 @@ public class LoanScheduleService {
 
     private LoanPaymentResponse generateLoanPaymentResponse (Loan loan, LoanSchedule loanSchedule, Transaction transaction){
 
-        return new LoanPaymentResponse(LoanResponse.of(loan),
+        return new LoanPaymentResponse(LoanResponse.of(loan, transaction.getLoanStatusAfterPayment()),
                 LoanScheduleResponse.of(loanSchedule),
                 TransactionResponse.of(transaction));
     }

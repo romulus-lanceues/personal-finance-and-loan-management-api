@@ -125,7 +125,7 @@ public class AccountServiceTest {
                     .build();
 
             given(accountRepository
-                    .findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
+                    .findForUpdateByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
                     .willReturn(Optional.of(outdatedAccount));
 
             AccountResponse result = accountService.updateAccount(accountId, request, jwtToken);
@@ -139,7 +139,7 @@ public class AccountServiceTest {
         @Test
         void givenAccountIdAndRequest_whenUpdateAccount_thenThrowResourceNotFound(){
 
-            given(accountRepository.findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
+            given(accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
                     .willReturn(Optional.empty());
 
             assertAll(
@@ -172,7 +172,8 @@ public class AccountServiceTest {
                     .isActive(true)
                     .build();
 
-            given(accountRepository.findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class))).willReturn(Optional.of(account));
+            given(accountRepository.findForUpdateByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
+                    .willReturn(Optional.of(account));
 
             AccountResponse result = accountService.closeAccount(accountId, jwtToken);
 
@@ -194,7 +195,7 @@ public class AccountServiceTest {
                     .build();
 
             given(accountRepository
-                    .findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
+                    .findForUpdateByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
                     .willReturn(Optional.of(account));
 
             assertAll(
@@ -213,7 +214,7 @@ public class AccountServiceTest {
                     .build();
 
             given(accountRepository
-                    .findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
+                    .findForUpdateByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
                     .willReturn(Optional.of(account));
 
             AccountResponse result = accountService.deleteAccount(accountId, jwtToken);
@@ -230,7 +231,7 @@ public class AccountServiceTest {
         @Test
         void givenAccountIdAndJwt_whenDeleteAccount_thenThrowAccountCannotBeFound() {
             given(accountRepository
-                    .findByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
+                    .findForUpdateByIdAndUserIdAndIsDeletedFalse(eq(accountId), any(UUID.class)))
                     .willReturn(Optional.empty());
 
             assertAll(

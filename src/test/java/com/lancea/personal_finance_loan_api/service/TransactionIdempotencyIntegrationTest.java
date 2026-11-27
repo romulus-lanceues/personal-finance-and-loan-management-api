@@ -1,0 +1,684 @@
+package com.lancea.personal_finance_loan_api.service;
+
+import com.lancea.personal_finance_loan_api.config.TestInfrastructureConfig;
+import com.lancea.personal_finance_loan_api.dto.request.AccountRequest;
+import com.lancea.personal_finance_loan_api.dto.request.DepositRequest;
+import com.lancea.personal_finance_loan_api.dto.request.LoanPaymentRequest;
+import com.lancea.personal_finance_loan_api.dto.request.LoanRequest;
+import com.lancea.personal_finance_loan_api.dto.request.TransferRequest;
+import com.lancea.personal_finance_loan_api.dto.request.WithdrawRequest;
+import com.lancea.personal_finance_loan_api.dto.response.LoanPaymentResponse;
+import com.lancea.personal_finance_loan_api.enums.AccountType;
+import com.lancea.personal_finance_loan_api.enums.Currency;
+import com.lancea.personal_finance_loan_api.enums.LoanScheduleStatus;
+import com.lancea.personal_finance_loan_api.enums.LoanStatus;
+import com.lancea.personal_finance_loan_api.exception.BadRequestException;
+import com.lancea.personal_finance_loan_api.exception.DuplicateTransactionException;
+import com.lancea.personal_finance_loan_api.exception.GlobalExceptionHandler;
+import com.lancea.personal_finance_loan_api.exception.ResourceNotFoundException;
+import jakarta.validation.Validator;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import javax.sql.DataSource;
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Import(TestInfrastructureConfig.class)
+class TransactionIdempotencyIntegrationTest {
+
+    @Autowired
+    private JdbcTemplate jdbc;
+    @Autowired
+    private DataSource dataSource;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    @Autowired
+    private AccountService accounts;
+    @Autowired
+    private TransactionService transactions;
+    @Autowired
+    private LoanService loans;
+    @Autowired
+    private LoanScheduleService installments;
+    @Autowired
+    private GlobalExceptionHandler exceptionHandler;
+    @Autowired
+    private Validator validator;
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Test
+    void cachedScheduleStillRequiresOwnershipAndRefreshesAfterPayment() {
+        UUID owner = createUser();
+        UUID loan = createLoan(owner, createAccount(owner));
+        Jwt ownerJwt = jwt(owner);
+        Jwt outsiderJwt = jwt(createUser());
+        var cache = cacheManager.getCache("loan-schedule");
+
+        assertThrows(ResourceNotFoundException.class, () -> installments.getLoanSchedules(loan, outsiderJwt));
+        var schedules = installments.getLoanSchedules(loan, ownerJwt);
+        assertThat(schedules).filteredOn(schedule -> schedule.paymentNumber() == 1).singleElement()
+                .satisfies(schedule -> assertThat(schedule.loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PENDING));
+        assertThat(cache.get(loan)).isNotNull();
+        assertThrows(ResourceNotFoundException.class, () -> installments.getLoanSchedules(loan, outsiderJwt));
+
+        installments.payInstallment(loan, 1, new LoanPaymentRequest("evict-schedule"), ownerJwt);
+
+        assertThat(cache.get(loan)).isNull();
+        assertThat(installments.getLoanSchedules(loan, ownerJwt))
+                .filteredOn(schedule -> schedule.paymentNumber() == 1).singleElement()
+                .satisfies(schedule -> assertThat(schedule.loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PAID));
+        jdbc.update("update loans set is_deleted = true where id = ?", loan);
+        assertThat(cache.get(loan)).isNotNull();
+        assertThrows(ResourceNotFoundException.class, () -> installments.getLoanSchedules(loan, ownerJwt));
+    }
+
+    @Test
+    void installmentPaymentEvictsTheWarmSummaryOnlyAfterCommit() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+        var request = new LoanPaymentRequest("summary-payment");
+        YearMonth month = YearMonth.now(ZoneOffset.UTC);
+        String key = owner + ":" + month.getYear() + ":" + month.getMonthValue();
+        var cache = cacheManager.getCache("spending-summary");
+        var tx = new TransactionTemplate(transactionManager);
+
+        assertThat(transactions.getMonthlySummary(month.getYear(), month.getMonthValue(), jwt)).isEmpty();
+        assertThat(cache.get(key)).isNotNull();
+
+        tx.executeWithoutResult(status -> {
+            installments.payInstallment(loan, 1, request, jwt);
+            assertThat(cache.get(key)).isNotNull();
+            status.setRollbackOnly();
+        });
+
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+        assertThat(installments.getSpecificLoanSchedule(loan, 1, jwt).loanScheduleStatus())
+                .isEqualTo(LoanScheduleStatus.PENDING);
+        assertThat(cache.get(key)).isNotNull();
+        assertThat(transactions.getMonthlySummary(month.getYear(), month.getMonthValue(), jwt)).isEmpty();
+
+        tx.executeWithoutResult(status -> {
+            installments.payInstallment(loan, 1, request, jwt);
+            assertThat(cache.get(key)).isNotNull();
+        });
+
+        assertThat(cache.get(key)).isNull();
+        assertThat(transactions.getMonthlySummary(month.getYear(), month.getMonthValue(), jwt))
+                .singleElement().satisfies(summary -> {
+                    assertThat(summary.category()).isEqualTo("LOAN_REPAYMENT");
+                    assertThat(summary.totalAmount()).isEqualByComparingTo("25.00");
+                    assertThat(summary.transactionCount()).isEqualTo(1L);
+                });
+    }
+
+    @Test
+    void concurrentInstallmentRetriesWaitForTheAccountAndReplayOnePayment() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+        LoanPaymentRequest request = new LoanPaymentRequest("concurrent");
+
+        LoanPaymentResponse paid = assertConcurrentRetry(account, () -> installments.payInstallment(loan, 1, request, jwt));
+        assertThat(paid.loanResponse().status()).isEqualTo(LoanStatus.ACTIVE);
+        assertThat(balance(account)).isEqualByComparingTo("75.00");
+        assertThat(transactionCount(account)).isEqualTo(1);
+
+        assertThatThrownBy(() -> installments.payInstallment(loan, 1, new LoanPaymentRequest("another"), jwt))
+                .isInstanceOf(BadRequestException.class);
+        assertThat(installments.payInstallment(loan, 2, new LoanPaymentRequest("final"), jwt)
+                .loanResponse().status()).isEqualTo(LoanStatus.PAID_OFF);
+        assertThat(installments.payInstallment(loan, 1, request, jwt)).isEqualTo(paid);
+        assertThat(balance(account)).isEqualByComparingTo("50.00");
+        assertThat(transactionCount(account)).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentRetriesForDepositsWithdrawalsAndTransfersEachMoveMoneyOnce() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID destination = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = new BigDecimal("12.50");
+
+        var deposit = new DepositRequest(account, amount, "Salary", null, "concurrent-deposit");
+        assertConcurrentRetry(account, () -> transactions.deposit(deposit, jwt));
+        assertThat(balance(account)).isEqualByComparingTo("112.50");
+        assertThat(transactionCount(account)).isEqualTo(1);
+
+        var withdrawal = new WithdrawRequest(account, amount, "Goods", null, "concurrent-withdrawal");
+        assertConcurrentRetry(account, () -> transactions.withdraw(withdrawal, jwt));
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isEqualTo(2);
+
+        var transfer = new TransferRequest(account, destination, amount, null, "concurrent-transfer");
+        assertThat(assertConcurrentRetry(account, () -> transactions.transfer(transfer, jwt))).hasSize(2);
+        assertThat(balance(account)).isEqualByComparingTo("87.50");
+        assertThat(balance(destination)).isEqualByComparingTo("112.50");
+        assertThat(transactionCount(account)).isEqualTo(3);
+        assertThat(transactionCount(destination)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentWithdrawalsWithDifferentKeysCannotBothOverdrawTheAccount() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = new BigDecimal("80.00");
+        var first = new WithdrawRequest(account, amount, "Goods", null, "withdrawal-1");
+        var second = new WithdrawRequest(account, amount, "Goods", null, "withdrawal-2");
+
+        var rejections = runConcurrently(account,
+                () -> badRequestMessage(() -> transactions.withdraw(first, jwt)),
+                () -> badRequestMessage(() -> transactions.withdraw(second, jwt)));
+
+        assertThat(rejections).containsExactlyInAnyOrder(Optional.empty(), Optional.of("Insufficient balance"));
+        assertThat(balance(account)).isEqualByComparingTo("20.00");
+        assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentDepositsWithDifferentKeysBothIncreaseTheBalance() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var first = new DepositRequest(account, new BigDecimal("12.50"), "Salary", null, "deposit-1");
+        var second = new DepositRequest(account, new BigDecimal("7.25"), "Salary", null, "deposit-2");
+
+        runConcurrently(account, () -> transactions.deposit(first, jwt), () -> transactions.deposit(second, jwt));
+
+        assertThat(balance(account)).isEqualByComparingTo("119.75");
+        assertThat(transactionCount(account)).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentTransfersInOppositeDirectionsPreserveBothBalanceChanges() throws Exception {
+        UUID owner = createUser();
+        UUID firstAccount = createAccount(owner);
+        UUID secondAccount = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var outbound = new TransferRequest(firstAccount, secondAccount, new BigDecimal("30.00"), null, "outbound");
+        var inbound = new TransferRequest(secondAccount, firstAccount, new BigDecimal("15.00"), null, "inbound");
+        UUID firstLockedAccount = firstAccount.compareTo(secondAccount) < 0 ? firstAccount : secondAccount;
+
+        runConcurrently(firstLockedAccount,
+                () -> transactions.transfer(outbound, jwt), () -> transactions.transfer(inbound, jwt));
+
+        assertThat(balance(firstAccount)).isEqualByComparingTo("85.00");
+        assertThat(balance(secondAccount)).isEqualByComparingTo("115.00");
+        assertThat(transactionCount(firstAccount)).isEqualTo(2);
+        assertThat(transactionCount(secondAccount)).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentPaymentsWithDifferentKeysPayTheFinalInstallmentOnlyOnce() throws Exception {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+        installments.payInstallment(loan, 1, new LoanPaymentRequest("first-installment"), jwt);
+        var first = new LoanPaymentRequest("final-payment-1");
+        var second = new LoanPaymentRequest("final-payment-2");
+
+        var rejections = runConcurrently(account,
+                () -> badRequestMessage(() -> installments.payInstallment(loan, 2, first, jwt)),
+                () -> badRequestMessage(() -> installments.payInstallment(loan, 2, second, jwt)));
+
+        assertThat(rejections).containsExactlyInAnyOrder(Optional.empty(), Optional.of("Loan is paid off"));
+        assertThat(balance(account)).isEqualByComparingTo("50.00");
+        assertThat(transactionCount(account)).isEqualTo(2);
+        assertThat(installments.getSpecificLoanSchedule(loan, 2, jwt).loanScheduleStatus())
+                .isEqualTo(LoanScheduleStatus.PAID);
+        assertThat(jdbc.queryForObject("select status from loans where id = ?", String.class, loan))
+                .isEqualTo(LoanStatus.PAID_OFF.name());
+    }
+
+    @Test
+    void rejectsMismatchesAndLegacyPaymentsAndLetsOtherAccountsReuseTheKey() {
+        UUID owner = createUser();
+        UUID otherOwner = createUser();
+        UUID account = createAccount(owner);
+        UUID otherAccount = createAccount(otherOwner);
+        UUID loan = createLoan(owner, account);
+        UUID anotherLoan = createLoan(owner, account);
+        UUID otherLoan = createLoan(otherOwner, otherAccount);
+        Jwt jwt = jwt(owner);
+        LoanPaymentRequest request = new LoanPaymentRequest("shared");
+
+        var first = installments.payInstallment(loan, 1, request, jwt);
+        assertConflict(() -> installments.payInstallment(loan, 2, request, jwt));
+        assertConflict(() -> installments.payInstallment(anotherLoan, 1, request, jwt));
+        assertConflict(() -> transactions.deposit(
+                new DepositRequest(account, new BigDecimal("25"), "Payment", null, "shared"), jwt));
+        assertThatThrownBy(() -> installments.payInstallment(loan, 1, request, jwt(otherOwner)))
+                .isInstanceOf(ResourceNotFoundException.class);
+        assertThat(installments.payInstallment(otherLoan, 1, request, jwt(otherOwner)).transactionResponse().id())
+                .isNotEqualTo(first.transactionResponse().id());
+
+        jdbc.update("update transactions set loan_schedule_id = null, loan_status_after_payment = null where id = ?",
+                first.transactionResponse().id());
+        assertConflict(() -> installments.payInstallment(loan, 1, request, jwt));
+        assertThat(transactionCount(account)).isEqualTo(1);
+        assertThat(balance(account)).isEqualByComparingTo("75.00");
+        assertThat(balance(otherAccount)).isEqualByComparingTo("75.00");
+    }
+
+    @Test
+    void replaysDepositsWithdrawalsAndBothTransferEntriesWithTheSameResponse() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID destination = createAccount(owner);
+        UUID differentDestination = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = new BigDecimal("12.50");
+
+        var deposit = new DepositRequest(account, amount, "Salary", null, "deposit");
+        var withdrawal = new WithdrawRequest(account, amount, "Goods", "Books", "withdrawal");
+        var transfer = new TransferRequest(account, destination, amount, "Savings", "transfer");
+
+        var deposited = transactions.deposit(deposit, jwt);
+        var withdrawn = transactions.withdraw(withdrawal, jwt);
+        var transferred = transactions.transfer(transfer, jwt);
+        assertThat(transferred.getFirst().transactedAt()).isEqualTo(transferred.getLast().transactedAt());
+        assertThat(transactions.deposit(deposit, jwt)).isEqualTo(deposited);
+        assertThat(transactions.withdraw(withdrawal, jwt)).isEqualTo(withdrawn);
+        assertThat(transactions.transfer(transfer, jwt)).containsExactlyElementsOf(transferred);
+        assertConflict(() -> transactions.deposit(
+                new DepositRequest(account, new BigDecimal("15.00"), "Salary", null, "deposit"), jwt));
+        assertConflict(() -> transactions.deposit(
+                new DepositRequest(account, amount, "Other", null, "deposit"), jwt));
+        assertConflict(() -> transactions.withdraw(
+                new WithdrawRequest(account, amount, "Goods", "Different purpose", "withdrawal"), jwt));
+        assertConflict(() -> transactions.transfer(
+                new TransferRequest(account, differentDestination, amount, "Savings", "transfer"), jwt));
+        Jwt outsider = jwt(createUser());
+        assertThatThrownBy(() -> transactions.deposit(deposit, outsider))
+                .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> transactions.withdraw(withdrawal, outsider))
+                .isInstanceOf(ResourceNotFoundException.class);
+        UUID outsiderAccount = createAccount(UUID.fromString(outsider.getClaimAsString("userId")));
+        assertThatThrownBy(() -> transactions.transfer(
+                new TransferRequest(account, outsiderAccount, amount, "Savings", "transfer"), jwt))
+                .isInstanceOf(ResourceNotFoundException.class);
+        var independentDeposit = transactions.deposit(
+                new DepositRequest(differentDestination, amount, "Salary", null, "deposit"), jwt);
+        assertThat(independentDeposit.id()).isNotEqualTo(deposited.id());
+        assertThat(balance(account)).isEqualByComparingTo("87.50");
+        assertThat(balance(destination)).isEqualByComparingTo("112.50");
+        assertThat(balance(differentDestination)).isEqualByComparingTo("112.50");
+        assertThat(transactionCount(account)).isEqualTo(3);
+        assertThat(transactionCount(destination)).isEqualTo(1);
+    }
+
+    @Test
+    void postgresEnforcesAccountScopedIdempotencyAndAcceptsMultipleNullKeys() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID otherAccount = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var first = transactions.deposit(new DepositRequest(account, BigDecimal.TEN, "Salary", null, "shared"), jwt);
+        var second = transactions.deposit(new DepositRequest(account, BigDecimal.TEN, "Salary", null, "distinct"), jwt);
+
+        assertThat(transactions.deposit(new DepositRequest(otherAccount, BigDecimal.TEN, "Salary", null, "shared"), jwt)
+                .id()).isNotEqualTo(first.id());
+        assertThatThrownBy(() -> jdbc.update("update transactions set idempotency_key = ? where id = ?",
+                "shared", second.id())).isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(jdbc.update("update transactions set idempotency_key = null where id in (?, ?)",
+                first.id(), second.id())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from transactions where account_id = ? and idempotency_key is null",
+                Long.class, account)).isEqualTo(2L);
+    }
+
+    @Test
+    void depositAndWithdrawalPersistTheirSubmittedDescriptions() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var deposit = transactions.deposit(
+                new DepositRequest(account, BigDecimal.TEN, "Salary", "November payroll", "payroll-deposit"), jwt);
+        var withdrawal = transactions.withdraw(
+                new WithdrawRequest(account, BigDecimal.ONE, "Goods", "Office supplies", "supplies-withdrawal"), jwt);
+
+        assertThat(deposit.description()).isEqualTo("November payroll");
+        assertThat(withdrawal.description()).isEqualTo("Office supplies");
+        assertThat(jdbc.queryForObject("select description from transactions where id = ?", String.class, deposit.id()))
+                .isEqualTo(deposit.description());
+        assertThat(jdbc.queryForObject("select description from transactions where id = ?", String.class, withdrawal.id()))
+                .isEqualTo(withdrawal.description());
+    }
+
+    @Test
+    void failedTransactionWriteRollsBackTheBalanceAndLeavesTheKeyAvailable() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = new BigDecimal("5.00");
+
+        assertThatThrownBy(() -> transactions.deposit(
+                new DepositRequest(account, amount, "Salary", "a".repeat(256), "failed-write"), jwt))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+
+        transactions.deposit(new DepositRequest(account, amount, "Salary", null, "failed-write"), jwt);
+        assertThat(balance(account)).isEqualByComparingTo("105.00");
+        assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @Test
+    void monthlySummaryUsesUtcMonthBoundariesInManilaSession() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var novemberDeposit = transactions.deposit(
+                new DepositRequest(account, new BigDecimal("12.50"), "Salary", null, "november"), jwt);
+        var decemberDeposit = transactions.deposit(
+                new DepositRequest(account, new BigDecimal("7.25"), "Salary", null, "december"), jwt);
+        jdbc.update("update transactions set transacted_at = ? where id = ?",
+                OffsetDateTime.parse("2026-11-30T18:00:00Z"), novemberDeposit.id());
+        jdbc.update("update transactions set transacted_at = ? where id = ?",
+                OffsetDateTime.parse("2026-12-01T00:00:00Z"), decemberDeposit.id());
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.execute("set local time zone 'Asia/Manila'");
+
+            assertThat(transactions.getMonthlySummary(2026, 11, jwt)).singleElement().satisfies(summary -> {
+                assertThat(summary.totalAmount()).isEqualByComparingTo("12.50");
+                assertThat(summary.transactionCount()).isEqualTo(1L);
+            });
+            assertThat(transactions.getMonthlySummary(2026, 12, jwt)).singleElement().satisfies(summary -> {
+                assertThat(summary.totalAmount()).isEqualByComparingTo("7.25");
+                assertThat(summary.transactionCount()).isEqualTo(1L);
+            });
+        });
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"0", "-0.01", "0.001", "12.345", "1000000000000000.00", "1E+2147483647"})
+    void rejectsInvalidAmountsWithoutWritingBalancesOrTransactions(String value) {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        UUID destination = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        BigDecimal amount = value == null ? null : new BigDecimal(value);
+        var deposit = new DepositRequest(account, amount, "Salary", null, "invalid-deposit");
+        var withdrawal = new WithdrawRequest(account, amount, "Goods", null, "invalid-withdrawal");
+        var transfer = new TransferRequest(account, destination, amount, null, "invalid-transfer");
+
+        for (Object request : List.of(deposit, withdrawal, transfer)) {
+            assertThat(validator.validate(request)).singleElement()
+                    .satisfies(violation -> assertThat(violation.getPropertyPath().toString()).isEqualTo("amount"));
+        }
+        assertThrows(BadRequestException.class, () -> transactions.deposit(deposit, jwt));
+        assertThrows(BadRequestException.class, () -> transactions.withdraw(withdrawal, jwt));
+        assertThrows(BadRequestException.class, () -> transactions.transfer(transfer, jwt));
+
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(balance(destination)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+        assertThat(transactionCount(destination)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0.0100", "999999999999999.9900"})
+    void acceptsExactTwoDecimalDepositsAtTheSupportedLimits(String value) {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        jdbc.update("update accounts set balance = 0 where id = ?", account);
+        BigDecimal amount = new BigDecimal(value);
+        var deposit = new DepositRequest(account, amount, "Salary", null, "valid-deposit");
+
+        assertThat(validator.validate(deposit)).isEmpty();
+
+        var saved = transactions.deposit(deposit, jwt(owner));
+
+        assertThat(saved.amount()).isEqualByComparingTo(amount);
+        assertThat(balance(account)).isEqualByComparingTo(amount);
+        assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @Test
+    void replaysAnExistingDepositAfterItsCurrencyIsDisabled() {
+        UUID owner = createUser();
+        UUID account = createAccount(owner);
+        Jwt jwt = jwt(owner);
+        var request = new DepositRequest(account, new BigDecimal("10.00"), "Salary", null, "legacy-deposit");
+        var original = transactions.deposit(request, jwt);
+        jdbc.update("update accounts set currency = 'JPY' where id = ?", account);
+
+        assertThat(transactions.deposit(request, jwt)).isEqualTo(original);
+        assertThat(balance(account)).isEqualByComparingTo("110.00");
+        assertThat(transactionCount(account)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Currency.class, names = {"USD", "JPY"})
+    void rejectsCrossCurrencyTransfersBeforeWriting(Currency currency) {
+        UUID owner = createUser();
+        UUID phpAccount = createAccount(owner);
+        UUID legacyAccount = createAccount(owner, currency);
+        Jwt jwt = jwt(owner);
+        var outbound = new TransferRequest(phpAccount, legacyAccount, BigDecimal.TEN, null, "outbound");
+        var inbound = new TransferRequest(legacyAccount, phpAccount, BigDecimal.TEN, null, "inbound");
+
+        assertThatThrownBy(() -> transactions.transfer(outbound, jwt))
+                .isInstanceOf(BadRequestException.class).hasMessage("Transfer accounts must use the same currency");
+        assertThatThrownBy(() -> transactions.transfer(inbound, jwt))
+                .isInstanceOf(BadRequestException.class).hasMessage("Transfer accounts must use the same currency");
+
+        assertThat(balance(phpAccount)).isEqualByComparingTo("100.00");
+        assertThat(balance(legacyAccount)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(phpAccount)).isZero();
+        assertThat(transactionCount(legacyAccount)).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Currency.class, names = {"USD", "JPY"})
+    void keepsLegacyAccountsReadableAndRejectsNewNonPhpActivity(Currency currency) {
+        UUID owner = createUser();
+        UUID account = createAccount(owner, currency);
+        UUID destination = createAccount(owner, currency);
+        UUID loan = createLoan(owner, account);
+        Jwt jwt = jwt(owner);
+
+        assertThat(accounts.getAccountById(account, jwt).currency()).isEqualTo(currency);
+        assertThatThrownBy(() -> accounts.createAccount(jwt, new AccountRequest("New account", AccountType.CHECKING, currency)))
+                .isInstanceOf(BadRequestException.class).hasMessage("Only PHP is currently supported");
+        assertThrows(BadRequestException.class, () -> transactions.deposit(
+                new DepositRequest(account, BigDecimal.TEN, "Salary", null, "deposit"), jwt));
+        assertThrows(BadRequestException.class, () -> transactions.withdraw(
+                new WithdrawRequest(account, BigDecimal.TEN, "Goods", null, "withdrawal"), jwt));
+        assertThrows(BadRequestException.class, () -> transactions.transfer(
+                new TransferRequest(account, destination, BigDecimal.TEN, null, "transfer"), jwt));
+        assertThrows(BadRequestException.class, () -> loans.createLoan(
+                new LoanRequest(account, "New loan", BigDecimal.TEN, BigDecimal.ZERO, 2, LocalDate.of(2026, 11, 23)), jwt));
+        assertThrows(BadRequestException.class, () -> installments.payInstallment(loan, 1, new LoanPaymentRequest("payment"), jwt));
+
+        assertThat(accounts.getAllAccounts(jwt)).hasSize(2);
+        assertThat(balance(account)).isEqualByComparingTo("100.00");
+        assertThat(balance(destination)).isEqualByComparingTo("100.00");
+        assertThat(transactionCount(account)).isZero();
+        assertThat(transactionCount(destination)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from loans where user_id = ?", Long.class, owner)).isEqualTo(1L);
+        assertThat(installments.getSpecificLoanSchedule(loan, 1, jwt).loanScheduleStatus()).isEqualTo(LoanScheduleStatus.PENDING);
+    }
+
+    @Test
+    void requestValidationRejectsKeysThatExceedTheDatabaseLimit() {
+        UUID account = UUID.randomUUID();
+        UUID destination = UUID.randomUUID();
+        BigDecimal amount = new BigDecimal("10.00");
+        String supplementaryCharacter = "\uD83D\uDE00";
+        for (String key : List.of("a".repeat(255), "a".repeat(256),
+                supplementaryCharacter.repeat(255), supplementaryCharacter.repeat(256))) {
+            List<Object> requests = List.of(
+                    new DepositRequest(account, amount, "Salary", null, key),
+                    new WithdrawRequest(account, amount, "Goods", null, key),
+                    new TransferRequest(account, destination, amount, null, key),
+                    new LoanPaymentRequest(key));
+            for (Object request : requests) {
+                var violations = validator.validate(request);
+                if (key.codePointCount(0, key.length()) == 255) {
+                    assertThat(violations).isEmpty();
+                } else {
+                    assertThat(violations).singleElement()
+                            .satisfies(violation -> assertThat(violation.getPropertyPath().toString())
+                                    .isEqualTo("idempotencyKey"));
+                }
+            }
+        }
+    }
+
+    private <T> T assertConcurrentRetry(UUID account, Callable<T> request) throws Exception {
+        List<T> results = runConcurrently(account, request, request);
+        assertThat(results.getLast()).isEqualTo(results.getFirst());
+        return results.getFirst();
+    }
+
+    private <T> List<T> runConcurrently(UUID account, Callable<T> firstRequest, Callable<T> secondRequest)
+            throws Exception {
+        try (var executor = Executors.newFixedThreadPool(2);
+             var blocker = dataSource.getConnection()) {
+            blocker.setAutoCommit(false);
+            try (var lock = blocker.prepareStatement("select id from accounts where id = ? for update")) {
+                lock.setObject(1, account);
+                lock.executeQuery().close();
+            }
+
+            var first = executor.submit(firstRequest);
+            var second = executor.submit(secondRequest);
+            try {
+                awaitTwoAccountLockWaiters();
+            } finally {
+                blocker.rollback();
+            }
+
+            return List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+        }
+    }
+
+    private Optional<String> badRequestMessage(Runnable request) {
+        try {
+            request.run();
+            return Optional.empty();
+        } catch (BadRequestException exception) {
+            return Optional.of(exception.getMessage());
+        }
+    }
+
+    private void awaitTwoAccountLockWaiters() throws InterruptedException {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+        while (Instant.now().isBefore(deadline)) {
+            Long waiters = jdbc.queryForObject("""
+                    select count(*) from pg_stat_activity
+                    where datname = current_database() and wait_event_type = 'Lock'
+                      and lower(query) like '%for%update%'
+                    """, Long.class);
+            if (waiters != null && waiters == 2) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new AssertionError("Expected both requests to wait for the account write lock");
+    }
+
+    private void assertConflict(Runnable request) {
+        var exception = assertThrows(DuplicateTransactionException.class, request::run);
+        assertThat(exceptionHandler.handleDuplicateTransactions(exception).getStatus())
+                .isEqualTo(HttpStatus.CONFLICT.value());
+    }
+
+    private UUID createUser() {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into users (id, email, full_name, password, provider, is_deleted, created_at, updated_at)
+                values (?, ?, 'Test User', 'unused', 'LOCAL', false, now(), now())
+                """, id, id + "@example.invalid");
+        return id;
+    }
+
+    private UUID createAccount(UUID owner) {
+        return createAccount(owner, Currency.PHP);
+    }
+
+    private UUID createAccount(UUID owner, Currency currency) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into accounts (id, user_id, account_name, account_type, currency, balance,
+                                      is_active, is_deleted, created_at, updated_at)
+                values (?, ?, 'Test Account', 'CHECKING', ?, 100, true, false, now(), now())
+                """, id, owner, currency.name());
+        return id;
+    }
+
+    private UUID createLoan(UUID owner, UUID account) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                insert into loans (id, user_id, account_id, loan_name, principal, annual_rate,
+                                   monthly_payment, term_months, status, is_deleted, disbursed_at,
+                                   maturity_date, created_at, updated_at)
+                values (?, ?, ?, 'Test Loan', 50, 0, 25, 2, 'ACTIVE', false,
+                        current_date, current_date + 60, now(), now())
+                """, id, owner, account);
+        for (int number : List.of(1, 2)) {
+            jdbc.update("""
+                    insert into loan_schedules (id, loan_id, payment_number, payment_amount, principal_portion,
+                                                interest_portion, remaining_balance, due_date, status,
+                                                created_at, updated_at)
+                    values (?, ?, ?, 25, 25, 0, ?, current_date + 30, 'PENDING', now(), now())
+                    """, UUID.randomUUID(), id, number, 50 - 25 * number);
+        }
+        return id;
+    }
+
+    private BigDecimal balance(UUID account) {
+        return jdbc.queryForObject("select balance from accounts where id = ?", BigDecimal.class, account);
+    }
+
+    private long transactionCount(UUID account) {
+        return jdbc.queryForObject("select count(*) from transactions where account_id = ?", Long.class, account);
+    }
+
+    private Jwt jwt(UUID owner) {
+        return Jwt.withTokenValue("test").header("alg", "none").claim("userId", owner.toString()).build();
+    }
+}

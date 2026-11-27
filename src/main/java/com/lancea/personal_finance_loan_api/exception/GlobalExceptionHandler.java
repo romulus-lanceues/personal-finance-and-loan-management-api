@@ -58,10 +58,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleDuplicateTransactions(DuplicateTransactionException ex){
         log.error("Duplicate transaction found", ex);
 
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.OK, ex.getMessage());
-        problemDetail.setProperty("existingTransaction", ex.getExistingTransaction());
-
-        return problemDetail;
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(ResourceNotFoundException.class)
